@@ -22,44 +22,30 @@ import (
 	"strings"
 )
 
-const (
-	depsdir = ".dcc.d"
-	windows = runtime.GOOS == "windows"
-	macos   = runtime.GOOS == "darwin"
-)
-
-type Vars map[string]string
-
 var (
-	kind     = ""
-	output   = ""
-	srcs     []string
-	cleaning = false
-	debug    = flag.Bool("debug", false, "Enable debug output.")
-	Cflag    = flag.String("C", "", "Change directory to `directory` before doing anything.")
-	oflag    = flag.String("o", "", "Define output `filename`.")
-	qflag    = flag.Bool("q", false, "Don't issue messages.")
-	kflag    = flag.Bool("k", false, "Keep going. Don't stop on error.")
-	others   *regexp.Regexp
+	depsdir        = getenv("DCCDEPS", ".dcc.d")
+	kind           = ""
+	output         = ""
+	srcs           []string
+	cleaning       = false
+	debug          = flag.Bool("debug", false, "Enable debug output.")
+	Cflag          = flag.String("C", "", "Change directory to `directory` before doing anything.")
+	oflag          = flag.String("o", "", "Define output `filename`.")
+	qflag          = flag.Bool("q", false, "Don't issue messages.")
+	kflag          = flag.Bool("k", false, "Keep going. Don't stop on error.")
+	otherPlatforms *regexp.Regexp
 
 	// Really should make this stricter, e.g. match any of the following
-	// and their forms where the return type is on a separate line.
+	// and their forms where the return type is on a separate line and
+	// allow for arbitrary whitespace.
 	//
 	//	int main()
 	//	int main(void)
 	//	int main(int
 	mainregex = regexp.MustCompile("^[ \t]*(int)?[ \t]*main\\([^;]*")
-
-	objext string
 )
 
 func main() {
-	if windows {
-		objext = ".obj"
-	} else {
-		objext = ".o"
-	}
-
 	log.SetFlags(0)
 	log.SetPrefix("dmake: ")
 
@@ -148,15 +134,53 @@ The module type cannot be defined for this mode.
 	}
 }
 
+// Platform-specific file naming stuff.
+//
+type extensions struct {
+	objsuffix string
+	exesuffix string
+	libprefix string
+	libsuffix string
+	dllsuffix string
+}
+
+var (
+	win = extensions{".obj", ".exe", "", ".lib", ".dll"}
+	mac = extensions{".o", "", "lib", ".a", ".dylib"}
+	elf = extensions{".o", "", "lib", ".a", ".so"}
+	ext *extensions
+)
+
+func init() {
+	if runtime.GOOS == "windows" {
+		ext = &win
+	} else if runtime.GOOS == "darwin" {
+		ext = &mac
+	} else { // reasonable assumption
+		ext = &elf
+	}
+}
+
+type Vars map[string]string
+
 func InitOtherPlatforms() {
-	platforms := []string{"windows", "nacl", "freebsd", "linux", "darwin", "netbsd", "openbsd", "solaris"}
+	platforms := []string{
+		"darwin",
+		"freebsd",
+		"linux",
+		"nacl",
+		"netbsd",
+		"openbsd",
+		"solaris",
+		"windows",
+	}
 	var names []string
 	for _, name := range platforms {
 		if name != runtime.GOOS {
 			names = append(names, name)
 		}
 	}
-	others = regexp.MustCompile("_(" + strings.Join(names, "|") + ")\\.")
+	otherPlatforms = regexp.MustCompile("_(" + strings.Join(names, "|") + ")\\.")
 }
 
 func RunDmakeIn(dir string) (err error) {
@@ -325,7 +349,7 @@ func FindFiles(glob string) ([]string, bool) {
 	}
 	names := make([]string, 0, len(filenames))
 	for _, name := range filenames {
-		if others.MatchString(name) {
+		if otherPlatforms.MatchString(name) {
 			continue
 		}
 		names = append(names, name)
@@ -368,43 +392,26 @@ func MakeFilename(prefix, stem, suffix string) string {
 // Return the name of a static library file with the given stem.
 //
 func LibFilename(stem string) (name string) {
-	if windows {
-		name = MakeFilename("", stem, ".lib")
-	} else {
-		name = MakeFilename("lib", stem, ".a")
-	}
-	return name
+	return MakeFilename(ext.libprefix, stem, ext.libsuffix)
 }
 
 // Return the name of a dynamic library file with the given stem.
 //
 func DllFilename(stem string) (name string) {
-	switch {
-	case windows:
-		name = MakeFilename("", stem, ".dll")
-	case macos:
-		name = MakeFilename("lib", stem, ".dylib")
-	default:
-		name = MakeFilename("lib", stem, ".so")
-	}
-	return
+	return MakeFilename(ext.libprefix, stem, ext.dllsuffix)
 }
 
 // Return the name of an executable file with the given stem.
 //
 func ExeFilename(stem string) (name string) {
-	if windows && !strings.HasSuffix(stem, ".exe") {
-		name = MakeFilename("", stem, ".exe")
-	} else {
-		name = stem
-	}
+	name = MakeFilename("", stem, ext.exesuffix)
 	return
 }
 
 // Return the name of an object file for a source file with the given name.
 //
 func ObjectFile(path string) string {
-	return strings.TrimSuffix(path, filepath.Ext(path)) + objext
+	return strings.TrimSuffix(path, filepath.Ext(path)) + ext.objsuffix
 }
 
 func DepsFile(path string) string {
@@ -434,7 +441,7 @@ func Expand(patterns string, names []string) ([]string, error) {
 			return nil, err
 		} else {
 			for _, name := range paths {
-				if !others.MatchString(name) {
+				if !otherPlatforms.MatchString(name) {
 					names = append(names, name)
 				}
 			}
@@ -454,7 +461,7 @@ func Fatal(err error) {
 }
 
 func ReadDmakefile(r io.Reader) (Vars, error) {
-	v := make(Vars)
+	v := NewVars()
 	if os := runtime.GOOS; os != "darwin" {
 		v["OS"] = os
 	} else {
@@ -475,21 +482,32 @@ func ReadDmakefile(r io.Reader) (Vars, error) {
 			return nil, fmt.Errorf("malformed line, spaces in key")
 		}
 		val := strings.TrimSpace(line[index+1:])
-		val = ExpandVars(val, v)
+		val = v.Expand(val)
 		v[key] = val
 	}
 
 	return v, nil
 }
 
-func ExpandVars(s string, v Vars) string {
+func NewVars() Vars {
+	return make(Vars)
+}
+
+func (v *Vars) Expand(s string) string {
 	r := strings.Fields(s)
 	for index, word := range r {
 		if word[0] == '$' {
-			if val, found := v[word[1:]]; found {
+			if val, found := (*v)[word[1:]]; found {
 				r[index] = val
 			}
 		}
 	}
 	return strings.Join(r, " ")
+}
+
+func getenv(name, def string) string {
+	if s := os.Getenv(name); s != "" {
+		return s
+	}
+	return def
 }
