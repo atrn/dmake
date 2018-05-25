@@ -23,25 +23,27 @@ import (
 )
 
 var (
-	depsdir        = getenv("DCCDEPS", ".dcc.d")
-	kind           = ""
-	output         = ""
-	srcs           []string
-	cleaning       = false
-	debug          = flag.Bool("debug", false, "Enable debug output.")
-	Cflag          = flag.String("C", "", "Change directory to `directory` before doing anything.")
-	oflag          = flag.String("o", "", "Define output `filename`.")
-	qflag          = flag.Bool("q", false, "Don't issue messages.")
-	kflag          = flag.Bool("k", false, "Keep going. Don't stop on error.")
-	otherPlatforms *regexp.Regexp
+	dmakefileFilename = ".dmake"
+	depsdir           = getenv("DCCDEPS", ".dcc.d")
+	kind              = ""
+	output            = ""
+	srcs              []string
+	cleaning          = false
+	debug             = flag.Bool("debug", false, "Enable debug output.")
+	Cflag             = flag.String("C", "", "Change directory to `directory` before doing anything.")
+	oflag             = flag.String("o", "", "Define output `filename`.")
+	vflag             = flag.Bool("v", false, "Issue messages.")
+	kflag             = flag.Bool("k", false, "Keep going. Don't stop on error.")
+	otherPlatforms    *regexp.Regexp
 
 	// Really should make this stricter, e.g. match any of the following
 	// and their forms where the return type is on a separate line and
-	// allow for arbitrary whitespace.
+	// allow for arbitrary whitespace of course.
 	//
 	//	int main()
 	//	int main(void)
 	//	int main(int
+	//
 	mainregex = regexp.MustCompile("^[ \t]*(int)?[ \t]*main\\([^;]*")
 )
 
@@ -57,8 +59,7 @@ The first form builds or cleans the specified module type located
 in the current directory.
 
 The second form runs dmake in each of the named directories in sequence.
-The module type cannot be defined for this mode.
-`)
+The module type cannot be defined for this mode.`)
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -72,7 +73,7 @@ The module type cannot be defined for this mode.
 	Check(err)
 
 	output = filepath.Base(cwd)
-	if output == "src" {
+	if strings.ToLower(output) == "src" {
 		output = filepath.Base(filepath.Dir(cwd))
 	}
 	if *oflag == "" {
@@ -116,7 +117,7 @@ The module type cannot be defined for this mode.
 	InitOtherPlatforms()
 
 	if len(dirs) == 0 {
-		err := RunDmake()
+		err := RunDmake(*oflag)
 		if err != nil {
 			log.Println(err)
 			os.Exit(1)
@@ -156,7 +157,7 @@ func init() {
 		ext = &win
 	} else if runtime.GOOS == "darwin" {
 		ext = &mac
-	} else { // reasonable assumption
+	} else { // assume linux or bsd
 		ext = &elf
 	}
 }
@@ -166,6 +167,7 @@ type Vars map[string]string
 func InitOtherPlatforms() {
 	platforms := []string{
 		"darwin",
+		"dragonfly",
 		"freebsd",
 		"linux",
 		"nacl",
@@ -173,6 +175,7 @@ func InitOtherPlatforms() {
 		"openbsd",
 		"solaris",
 		"windows",
+		"zos",
 	}
 	var names []string
 	for _, name := range platforms {
@@ -192,7 +195,7 @@ func RunDmakeIn(dir string) (err error) {
 	if err != nil {
 		return
 	}
-	if !*qflag {
+	if *vflag {
 		log.Println("entering directory", dir)
 	}
 	cwd, err2 := os.Getwd()
@@ -201,9 +204,8 @@ func RunDmakeIn(dir string) (err error) {
 	}
 	kind = ""
 	output = filepath.Base(cwd)
-	*oflag = output
-	err = RunDmake()
-	if !*qflag {
+	err = RunDmake(filepath.Base(cwd))
+	if *vflag {
 		log.Println("leaving directory", dir)
 	}
 	err2 = os.Chdir(oldcwd)
@@ -213,11 +215,11 @@ func RunDmakeIn(dir string) (err error) {
 	return
 }
 
-func RunDmake() (err error) {
+func RunDmake(opath string) (err error) {
 	var havefiles bool
 
-	if dmakefile, err := os.Open("DMAKE"); err == nil {
-		err = LoadDmakefile(dmakefile)
+	if dmakefile, err := os.Open(dmakefileFilename); err == nil {
+		err = LoadDmakefile(dmakefile, dmakefileFilename)
 		dmakefile.Close()
 		if err != nil {
 			return err
@@ -262,12 +264,12 @@ func RunDmake() (err error) {
 	if kind == "" {
 		for _, path := range srcs {
 			if FileDefinesMain(path) {
-				kind, output = "--exe", ExeFilename(*oflag)
+				kind, output = "--exe", ExeFilename(opath)
 				break
 			}
 		}
 		if kind == "" {
-			kind, output = "--lib", LibFilename(*oflag)
+			kind, output = "--lib", LibFilename(opath)
 		}
 		if *debug {
 			log.Printf("inferred module type %q name %q", kind, output)
@@ -299,8 +301,8 @@ func RunDmake() (err error) {
 	return
 }
 
-func LoadDmakefile(dmakefile *os.File) error {
-	vars, err := ReadDmakefile(dmakefile)
+func LoadDmakefile(dmakefile *os.File, path string) error {
+	vars, err := ReadDmakefile(dmakefile, path)
 	if err != nil {
 		return err
 	}
@@ -460,26 +462,37 @@ func Fatal(err error) {
 	log.Fatal(err)
 }
 
-func ReadDmakefile(r io.Reader) (Vars, error) {
-	v := NewVars()
+func SystemName() string {
 	if os := runtime.GOOS; os != "darwin" {
-		v["OS"] = os
-	} else {
-		v["OS"] = "macos"
+		return os
 	}
+	return "macos"
+}
+
+func ReadDmakefile(r io.Reader, path string) (Vars, error) {
+	v := NewVars()
+	v["OS"] = SystemName()
 	v["ARCH"] = runtime.GOARCH
+	lineno := 0
+	fail := func(message string) (Vars, error) {
+		return nil, fmt.Errorf("%s:%d - %s", path, lineno, message)
+	}
 	for input := bufio.NewScanner(r); input.Scan(); {
+		lineno++
 		line := strings.TrimSpace(input.Text())
 		if line == "" || line[0] == '#' {
 			continue
 		}
 		index := strings.Index(line, "=")
-		if index == -1 || index == 0 {
-			return nil, fmt.Errorf("malformed line")
+		if index == -1 {
+			return fail("malformed line, no '='")
+		}
+		if index == 0 {
+			return fail("malformed line, no variable name before '='")
 		}
 		key := strings.TrimSpace(line[0 : index-1])
 		if len(strings.Fields(key)) != 1 {
-			return nil, fmt.Errorf("malformed line, spaces in key")
+			return fail("malformed line, spaces in key")
 		}
 		val := strings.TrimSpace(line[index+1:])
 		val = v.Expand(val)
