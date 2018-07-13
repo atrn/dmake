@@ -1,11 +1,30 @@
 # dmake - build tool using dcc
 
-`dmake` is a software build tool for C++/C using the
-dcc compiler-driver. Despite its name dmake is *not*
-a make clone and in fact bears no relation to make
-or others of its ilk. dmake builds _modules_ using
-dcc to do the compilation. dmake determines what
-files to compile and how to compile them.
+`dmake` is a build tool for C++/C that, despite its
+name, is *not* a make clone. dmake has no relation
+to make or other tools of its ilk.
+
+dmake builds _modules_ and uses the dcc compiler-
+driver to do take care of the compilation task.
+dmake itself determines what and how to compile
+and uses dcc's automatic dependency-based compiles
+to keep compiled outputs up to date.
+
+dmake offers some features to help the lazy
+programmer.  dmake can automatically determine
+if source code represents a program or library
+and invokes dcc accordingly to create an
+executable or a library.
+
+The dmake _user-experience_ is typically a two step
+thing. The first step is where we create _options files_
+used by dcc when it is compiling. We usually just
+create one file, CXXFLAGS, to define compiler options.
+If we're building a program we may create another file,
+LIBS, to link in extra libraries.
+
+With the options files in place usage is usually
+just typing `dmake`. It figures out what to do.
 
 ## Using dmake
 
@@ -49,14 +68,23 @@ If the 'clean' argument is supplied all output files are
 removed instead of being built.
 
 ## USAGE
-	dmake [-o name] [{exe | lib | dll }] [clean]
+	dmake [options] [{exe | lib | dll }] [clean]
 	dmake dirs pathname...
-	dmake [-o name] init
 
 ## OPTIONS
+	-C dir		Change to the named directory
+			before processing. Useful when
+			invoking dmake from IDEs.
 	-o name		Use 'name' as the base name for the
 			build output rather than the default
 			based off the current directory name.
+	-k		Keep going where possible, don't stop
+			upon the first error.
+	-v		Be more verbose and issue messages.
+	-dll		When automatically creating a library,
+			because no main function was found in
+			the sources, create a dynamic library
+			rather than a static library.
 
 ## FILES
 
