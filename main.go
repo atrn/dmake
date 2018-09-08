@@ -232,7 +232,6 @@ func RunDmakeIn(dir string) (err error) {
 //
 func RunDmake(opath string) (err error) {
 
-	os.MkdirAll(objsdir, 0777)
 
 	var havefiles bool
 
@@ -327,6 +326,7 @@ func RunDmake(opath string) (err error) {
 	args = append(args, srcs...)
 	cmd := exec.Command("dcc", args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
+	os.MkdirAll(objsdir, 0777)
 	err = cmd.Run()
 	return
 }
