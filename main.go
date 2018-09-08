@@ -465,7 +465,11 @@ func ObjectFile(path string) string {
 //
 func DepsFile(path string) string {
 	dir, base := filepath.Dir(path), filepath.Base(path)
-	return filepath.Join(dir, depsdir, base)
+	if strings.HasSuffix(dir, objsdir) {
+		return filepath.Join(dir, base)
+	} else {
+	    return filepath.Join(dir, depsdir, base)
+	}
 }
 
 // ReadSrcs reads a "SRCS" file - a list of glob patterns
