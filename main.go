@@ -232,7 +232,6 @@ func RunDmakeIn(dir string) (err error) {
 //
 func RunDmake(opath string) (err error) {
 
-
 	var havefiles bool
 
 	if dmakefile, err := os.Open(dmakefileFilename); err == nil {
@@ -270,10 +269,16 @@ func RunDmake(opath string) (err error) {
 		srcs, havefiles = MatchFiles("*.cc")
 	}
 	if !havefiles {
+		srcs, havefiles = MatchFiles("*.mm")
+	}
+	if !havefiles {
+		srcs, havefiles = MatchFiles("*.m")
+	}
+	if !havefiles {
 		srcs, havefiles = MatchFiles("*.c")
 	}
 	if !havefiles {
-		return fmt.Errorf("no C or C++ source files found")
+		return fmt.Errorf("no C, Objective-C++, Objective-C or C++ source files found")
 	}
 	if *debug {
 		log.Printf("DEBUG: srcs=%v", srcs)
@@ -468,7 +473,7 @@ func DepsFile(path string) string {
 	if strings.HasSuffix(dir, objsdir) {
 		return filepath.Join(dir, base)
 	} else {
-	    return filepath.Join(dir, depsdir, base)
+		return filepath.Join(dir, depsdir, base)
 	}
 }
 
