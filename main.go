@@ -30,17 +30,19 @@ const (
 )
 
 var (
-	srcs     []string // names of the source files
-	kind     = ""     // dcc option "--dll" | "--exe" | "--lib"
-	output   = ""     // output filename
-	cleaning = false  // true if cleaning
+	srcs       []string // names of the source files
+	kind       = ""     // dcc option "--dll" | "--exe" | "--lib"
+	output     = ""     // output filename
+	cleaning   = false  // true if cleaning
+	installing = false  // true if installing
 
-	debug   = flag.Bool("debug", false, "Enable debug output.")
 	Cflag   = flag.String("C", "", "Change directory to `directory` before doing anything.")
 	oflag   = flag.String("o", "", "Define output `filename`.")
 	vflag   = flag.Bool("v", false, "Issue messages.")
 	kflag   = flag.Bool("k", false, "Keep going. Don't stop on error.")
 	dllflag = flag.Bool("dll", false, "Automatic dynamic, not static, libraries.")
+	prefix  = flag.String("prefix", Getenv("PREFIX", "/usr/local"), "Installation `path` prefix")
+	debug   = flag.Bool("zzz", false, "Enable debugging output and dcc's --debug switch.")
 
 	depsdir = Getenv("DCCDEPS", defaultDepsDir)
 	objsdir = Getenv("OBJDIR", defaultObjsDir)
@@ -69,14 +71,20 @@ func main() {
 	log.SetPrefix("dmake: ")
 
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: dmake [options] {exe|lib|dll} [clean]")
+		fmt.Fprintln(os.Stderr, "usage: dmake [options] {exe|lib|dll} [install|clean]")
 		fmt.Fprintln(os.Stderr, "       dmake [options] path...")
 		fmt.Fprintln(os.Stderr, `
-The first form builds or cleans the specified module type located
-in the current directory.
+The first form builds, installs or cleans the specified module type located
+in the current directory. Building and cleaning do the obvious.
+
+Installing runs the "/usr/bin/install" program to copy the build output
+to the appropriate directory under some "prefix" directory defined by
+the -prefix option. The default is "/usr/local" so, by default, executables
+install under /usr/local/bin and libraries under /usr/local/lib.
 
 The second form runs dmake in each of the named directories in sequence,
-in this mode the module type cannot be defined on the command line.`)
+in this mode the module type cannot be defined on the command line. Yes,
+its a hack.`)
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -112,7 +120,20 @@ in this mode the module type cannot be defined on the command line.`)
 			}
 			return true
 		}
+		checkinstall := func() bool {
+			if narg < 2 {
+				return false
+			} else if narg > 2 || flag.Arg(1) != "install" {
+				usage()
+			}
+			return true
+		}
 		switch flag.Arg(0) {
+		case "install":
+			installing = true
+			if narg > 1 {
+				usage()
+			}
 		case "clean":
 			cleaning = true
 			if narg > 1 {
@@ -120,13 +141,19 @@ in this mode the module type cannot be defined on the command line.`)
 			}
 		case "dll":
 			kind, output = "--dll", DllFilename(*oflag)
-			cleaning = checkclean()
+			if cleaning = checkclean(); !cleaning {
+				installing = checkinstall()
+			}
 		case "exe":
 			kind, output = "--exe", ExeFilename(*oflag)
-			cleaning = checkclean()
+			if cleaning = checkclean(); !cleaning {
+				installing = checkinstall()
+			}
 		case "lib":
 			kind, output = "--lib", LibFilename(*oflag)
-			cleaning = checkclean()
+			if cleaning = checkclean(); !cleaning {
+				installing = checkinstall()
+			}
 		default:
 			dirs = append(dirs, flag.Args()...)
 		}
@@ -202,18 +229,18 @@ func init() {
 func RunDmakeIn(dir string) (err error) {
 	oldcwd, err := os.Getwd()
 	if err != nil {
-		return
+		return Detailed(err, "os.Getwd")
 	}
 	err = os.Chdir(dir)
 	if err != nil {
-		return
+		return Detailed(err, "os.Chdir %q", dir)
 	}
 	if *vflag {
 		log.Println("entering directory", dir)
 	}
 	cwd, err2 := os.Getwd()
 	if err2 != nil {
-		return err2
+		return Detailed(err2, "os.Getwd")
 	}
 	kind = ""
 	output = filepath.Base(cwd)
@@ -223,7 +250,7 @@ func RunDmakeIn(dir string) (err error) {
 	}
 	err2 = os.Chdir(oldcwd)
 	if err == nil {
-		err = err2
+		err = Detailed(err2, "os.Chdir %q", oldcwd)
 	}
 	return
 }
@@ -332,8 +359,34 @@ func RunDmake(opath string) (err error) {
 	cmd := exec.Command("dcc", args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
 	os.MkdirAll(objsdir, 0777)
+	if *debug {
+		log.Printf("EXEC: dcc %v", args)
+	}
 	err = cmd.Run()
+
+	if err == nil && installing {
+		dir := installdir(kind, *prefix)
+		mode := "0444"
+		if kind == "--exe" {
+			mode = "0555"
+		}
+		args = []string{"-c", "-m", mode, output, filepath.Join(dir, output)}
+		cmd = exec.Command("/usr/bin/install", args...)
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
+		if *debug {
+			log.Printf("EXEC: /usr/bin/install %v", args)
+		}
+		err = cmd.Run()
+	}
+
 	return
+}
+
+func installdir(kind, path string) string {
+	if kind == "--exe" {
+		return filepath.Join(path, "bin")
+	}
+	return filepath.Join(path, "lib")
 }
 
 // LoadDmakefile reads the dmakefile and looks for the
@@ -496,10 +549,14 @@ func ReadSrcs(r io.Reader) ([]string, error) {
 	return names, nil
 }
 
+func Detailed(err error, format string, args ...interface{}) error {
+	return fmt.Errorf("%s (%s)", err, fmt.Sprintf(format, args...))
+}
+
 func Expand(patterns string, names []string) ([]string, error) {
 	for _, pattern := range strings.Fields(patterns) {
 		if paths, err := filepath.Glob(pattern); err != nil {
-			return nil, err
+			return nil, Detailed(err, "filepath.Glob %q", pattern)
 		} else {
 			for _, name := range paths {
 				if !otherPlatforms.MatchString(name) {
