@@ -39,11 +39,10 @@ var (
 
 	oflag   = flag.String("o", "", "Define output `filename`.")
 	vflag   = flag.Bool("v", false, "Issue messages.")
-	kflag   = flag.Bool("k", false, "Keep going. Don't stop on error.")
-	dllflag = flag.Bool("dll", false, "Automatic dynamic, not static, libraries.")
+	kflag   = flag.Bool("k", false, "Keep going. Don't stop on first error.")
+	dllflag = flag.Bool("dll", false, "Create dynamic libraries.")
 	prefix  = flag.String("prefix", get_env_var("PREFIX", "/usr/local"), "Installation `path` prefix")
-	debug   = flag.Bool("zzz", false, "Enable debugging output and dcc's --debug switch.")
-
+	debug   = flag.Bool("zzz", false, "Enable debug output and pass dcc the --debug option.")
 	depsdir = get_env_var("DCCDEPS", default_dep_file_dir)
 	objsdir = get_env_var("OBJDIR", default_obj_file_dir)
 
