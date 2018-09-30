@@ -48,13 +48,14 @@ var (
 	depsdir = get_env_var("DCCDEPS", default_dep_file_dir)
 	objsdir = get_env_var("OBJDIR", default_obj_file_dir)
 
-	// Matches platforms other than this one. Used to filter *out*
-	// Go-style platform-specific filenames from the contents of a
-	// directory.
+	// This matches platforms **other** than this one. This is
+	// used to ignore files using Go-style platform-specific
+	// filenames.
 	//
 	other_platform_names *regexp.Regexp
 
-	// Really should make this stricter, e.g. match any of the following
+	// This matches a definition of a main() function in C/C++. This
+	// really should stricter, e.g. match any of the following
 	// and their forms where the return type is on a separate line and
 	// allow for arbitrary whitespace of course.
 	//
@@ -62,7 +63,7 @@ var (
 	//	int main(void)
 	//	int main(int
 	//
-	// But this works for me...
+	// But hey, this is enough for me...
 	//
 	main_function_regex = regexp.MustCompile("^[ \t]*(int)?[ \t]*main\\([^;]*")
 )
@@ -183,6 +184,19 @@ its a hack.`)
 
 type Vars map[string]string
 
+func (v *Vars) interpolate_var_references(s string) string {
+	r := strings.Fields(s)
+	for index, word := range r {
+		if word[0] == '$' {
+			key := word[1:]
+			if val, found := (*v)[key]; found {
+				r[index] = val
+			}
+		}
+	}
+	return strings.Join(r, " ")
+}
+
 // platform-specific file naming stuff
 //
 type extensions struct {
@@ -190,17 +204,20 @@ type extensions struct {
 	exesuffix string
 	libprefix string
 	libsuffix string
+	dllprefix string
 	dllsuffix string
 }
 
 var (
-	win = extensions{".obj", ".exe", "", ".lib", ".dll"}
-	mac = extensions{".o", "", "lib", ".a", ".dylib"}
-	elf = extensions{".o", "", "lib", ".a", ".so"}
 	ext *extensions
 )
 
 func init() {
+	var (
+		win = extensions{".obj", ".exe", "", ".lib", "", ".dll"}
+		mac = extensions{".o", "", "lib", ".a", "lib", ".dylib"}
+		elf = extensions{".o", "", "lib", ".a", "lib", ".so"}
+	)
 	name := get_system_name()
 	switch name {
 	case "windows":
@@ -317,7 +334,7 @@ func do_dmake(opath string, cleaning bool, installing bool) (err error) {
 			}
 			ofile := object_file_filename(path)
 			clean(ofile, objsdir)
-			clean(dependency_file(ofile), depsdir)
+			clean(objects_dependency_file(ofile), depsdir)
 		}
 		return nil
 	}
@@ -375,6 +392,7 @@ func get_vars_from_dmake_file(dmakefile *os.File, path string) error {
 	if err != nil {
 		return err
 	}
+
 	var patterns string
 	var found bool
 	patterns, found = vars["SRCS"]
@@ -385,6 +403,18 @@ func get_vars_from_dmake_file(dmakefile *os.File, path string) error {
 		}
 		if len(source_file_filenames) < 1 {
 			return fmt.Errorf("SRCS=%s matches no source files", patterns)
+		}
+	}
+
+	var directories string
+	directories, found = vars["DIRS"]
+	if found {
+		subdirectory_names, err = expand_glob_patterns(directories, subdirectory_names)
+		if err != nil {
+			return err
+		}
+		if len(subdirectory_names) < 1 {
+			return fmt.Errorf("DIRS=%s matches no names", patterns)
 		}
 	}
 
@@ -448,36 +478,34 @@ func main_defined_in_source_file(path string) bool {
 	return false
 }
 
-// form_filename creates a filename from a prefix part, a stem and suffix.
-//
-func form_filename(prefix, stem, suffix string) string {
-	dir, name := filepath.Dir(stem), filepath.Base(stem)
-	if prefix != "" && !strings.HasPrefix(name, prefix) {
-		name = prefix + name
+func form_filename_from(path, prefix, suffix string) string {
+	dirname, basename := filepath.Dir(path), filepath.Base(path)
+	if prefix != "" && !strings.HasPrefix(basename, prefix) {
+		basename = prefix + basename
 	}
-	if suffix != "" && !strings.HasSuffix(name, suffix) {
-		name += suffix
+	if suffix != "" && !strings.HasSuffix(basename, suffix) {
+		basename += suffix
 	}
-	return filepath.Clean(filepath.Join(dir, name))
+	return filepath.Clean(filepath.Join(dirname, basename))
 }
 
 // form_lib_filename returns the name of a static library file with the given stem.
 //
 func form_lib_filename(stem string) (name string) {
-	return form_filename(ext.libprefix, stem, ext.libsuffix)
+	return form_filename_from(stem, ext.libprefix, ext.libsuffix)
 }
 
 // form_dll_filename returns the name of a dynamic library file with the given stem.
 //
 func form_dll_filename(stem string) (name string) {
-	return form_filename(ext.libprefix, stem, ext.dllsuffix)
+	return form_filename_from(stem, ext.dllprefix, ext.dllsuffix)
 }
 
 // form_exe_filename returns the name of an executable file with the given stem.
 // This exists to append a ".exe" on Windows.
 //
 func form_exe_filename(stem string) (name string) {
-	name = form_filename("", stem, ext.exesuffix)
+	name = form_filename_from(stem, "", ext.exesuffix)
 	return
 }
 
@@ -489,16 +517,12 @@ func object_file_filename(path string) string {
 	return strings.TrimSuffix(path, filepath.Ext(path)) + ext.objsuffix
 }
 
-// dependency_file returns the name of the dcc dependency file
-// for an object file. This is used when cleaning to
-// remove dcc-generated files.
-//
-func dependency_file(path string) string {
-	dir, base := filepath.Dir(path), filepath.Base(path)
-	if strings.HasSuffix(dir, objsdir) {
-		return filepath.Join(dir, base)
+func objects_dependency_file(path string) string {
+	dirname, basename := filepath.Dir(path), filepath.Base(path)
+	if strings.HasSuffix(dirname, objsdir) {
+		return filepath.Join(dirname, basename)
 	} else {
-		return filepath.Join(dir, depsdir, base)
+		return filepath.Join(dirname, depsdir, basename)
 	}
 }
 
@@ -572,19 +596,6 @@ func read_dmake_file(r io.Reader, path string) (Vars, error) {
 	}
 
 	return vars, nil
-}
-
-func (v *Vars) interpolate_var_references(s string) string {
-	r := strings.Fields(s)
-	for index, word := range r {
-		if word[0] == '$' {
-			key := word[1:]
-			if val, found := (*v)[key]; found {
-				r[index] = val
-			}
-		}
-	}
-	return strings.Join(r, " ")
 }
 
 func is_common_source_code_subdirectory(dir string) bool {
