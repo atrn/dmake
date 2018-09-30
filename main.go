@@ -53,23 +53,20 @@ var (
 	other_platform_names *regexp.Regexp
 
 	// This matches a definition of a main() function in C/C++. This
-	// really should stricter, e.g. match any of the following
+	// could be stricter, e.g. more precisely match any of the following
 	// and their forms where the return type is on a separate line and
-	// allow for arbitrary whitespace of course.
+	// arbitrary whitespace of course...
 	//
 	//	int main()
 	//	int main(void)
 	//	int main(int
 	//
-	// But hey, this is enough for me...
+	// But hey, the following is enough for me...
 	//
 	main_function_regex = regexp.MustCompile("^[ \t]*(int)?[ \t]*main\\([^;]*")
 )
 
 func main() {
-	installing := false
-	cleaning := false
-
 	log.SetFlags(0)
 	log.SetPrefix("dmake: ")
 
@@ -92,9 +89,11 @@ its a hack.`)
 	}
 	flag.Parse()
 
+	installing := false
+	cleaning := false
+
 	cwd, err := os.Getwd()
 	possibly_fatal_error(err)
-
 	output_filename = filepath.Base(cwd)
 	if is_common_source_code_subdirectory(output_filename) {
 		output_filename = filepath.Base(filepath.Dir(cwd))
