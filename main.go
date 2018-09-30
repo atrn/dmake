@@ -23,17 +23,19 @@ import (
 )
 
 const (
-	dot_dmake_file_filename = ".dmake"
-	default_dep_file_dir    = ".dcc.d"
-	default_obj_file_dir    = ".dmake.o"
+	dmake_file_filename  = ".dmake"
+	default_dep_file_dir = ".dcc.d"
+	default_obj_file_dir = ".dcc.o"
+	dll_file_type        = "--dll"
+	exe_file_type        = "--exe"
+	lib_file_type        = "--lib"
 )
 
 var (
-	srcs            []string // names of the source files
-	kind            = ""     // dcc option "--dll" | "--exe" | "--lib"
-	output_filename = ""     // output filename
-	cleaning        = false  // true if cleaning
-	installing      = false  // true if installing
+	source_file_filenames []string // names of the source files
+	subdirectory_names    []string // names of any sub-directories
+	output_file_type      = ""     // dcc option "--dll" | "--exe" | "--lib"
+	output_filename       = ""     // output filename
 
 	Cflag   = flag.String("C", "", "Change directory to `directory` before doing anything.")
 	oflag   = flag.String("o", "", "Define output `filename`.")
@@ -66,6 +68,9 @@ var (
 )
 
 func main() {
+	installing := false
+	cleaning := false
+
 	log.SetFlags(0)
 	log.SetPrefix("dmake: ")
 
@@ -90,11 +95,11 @@ its a hack.`)
 
 	if *Cflag != "" {
 		err := os.Chdir(*Cflag)
-		maybe_fatal(err)
+		possibly_fatal_error(err)
 	}
 
 	cwd, err := os.Getwd()
-	maybe_fatal(err)
+	possibly_fatal_error(err)
 
 	output_filename = filepath.Base(cwd)
 	if is_common_source_code_subdirectory(output_filename) {
@@ -105,7 +110,6 @@ its a hack.`)
 		*oflag = output_filename
 	}
 
-	dirs := make([]string, 0)
 	if narg := flag.NArg(); narg > 0 {
 		usage := func() {
 			flag.Usage()
@@ -139,27 +143,27 @@ its a hack.`)
 				usage()
 			}
 		case "dll":
-			kind, output_filename = "--dll", form_dll_filename(*oflag)
+			output_file_type, output_filename = dll_file_type, form_dll_filename(*oflag)
 			if cleaning = checkclean(); !cleaning {
 				installing = checkinstall()
 			}
 		case "exe":
-			kind, output_filename = "--exe", form_exe_filename(*oflag)
+			output_file_type, output_filename = exe_file_type, form_exe_filename(*oflag)
 			if cleaning = checkclean(); !cleaning {
 				installing = checkinstall()
 			}
 		case "lib":
-			kind, output_filename = "--lib", form_lib_filename(*oflag)
+			output_file_type, output_filename = lib_file_type, form_lib_filename(*oflag)
 			if cleaning = checkclean(); !cleaning {
 				installing = checkinstall()
 			}
 		default:
-			dirs = append(dirs, flag.Args()...)
+			subdirectory_names = append(subdirectory_names, flag.Args()...)
 		}
 	}
 
-	if len(dirs) == 0 {
-		err := do_dmake(*oflag)
+	if len(subdirectory_names) == 0 {
+		err := do_dmake(*oflag, cleaning, installing)
 		if err != nil {
 			log.Println(err)
 			os.Exit(1)
@@ -167,8 +171,8 @@ its a hack.`)
 		os.Exit(0)
 	}
 
-	for _, dir := range dirs {
-		if err := do_dmake_in(dir); err != nil {
+	for _, dir := range subdirectory_names {
+		if err := do_dmake_in(dir, cleaning, installing); err != nil {
 			log.Println(err)
 			if !*kflag {
 				os.Exit(1)
@@ -177,7 +181,9 @@ its a hack.`)
 	}
 }
 
-// Platform-specific file naming stuff.
+type Vars map[string]string
+
+// platform-specific file naming stuff
 //
 type extensions struct {
 	objsuffix string
@@ -194,17 +200,16 @@ var (
 	ext *extensions
 )
 
-type Vars map[string]string
-
 func init() {
-	if runtime.GOOS == "windows" {
+	name := get_system_name()
+	switch name {
+	case "windows":
 		ext = &win
-	} else if runtime.GOOS == "darwin" {
+	case "macos":
 		ext = &mac
-	} else { // assume linux or bsd
+	default:
 		ext = &elf
 	}
-
 	platforms := []string{
 		"darwin",
 		"freebsd",
@@ -225,7 +230,7 @@ func init() {
 
 // do_dmake_in runs dmake in the named directory.
 //
-func do_dmake_in(dir string) (err error) {
+func do_dmake_in(dir string, cleaning bool, installing bool) (err error) {
 	oldcwd, err := os.Getwd()
 	if err != nil {
 		return more_detailed_error(err, "os.Getwd")
@@ -241,9 +246,9 @@ func do_dmake_in(dir string) (err error) {
 	if err2 != nil {
 		return more_detailed_error(err2, "os.Getwd")
 	}
-	kind = ""
+	output_file_type = ""
 	output_filename = filepath.Base(cwd)
-	err = do_dmake(filepath.Base(cwd))
+	err = do_dmake(filepath.Base(cwd), cleaning, installing)
 	if *vflag {
 		log.Println("leaving directory", dir)
 	}
@@ -254,20 +259,20 @@ func do_dmake_in(dir string) (err error) {
 	return
 }
 
-func do_dmake(opath string) (err error) {
+func do_dmake(opath string, cleaning bool, installing bool) (err error) {
 	havefiles := false
-	if dmakefile, err := os.Open(dot_dmake_file_filename); err == nil {
-		err = get_vars_from_dmake_file(dmakefile, dot_dmake_file_filename)
+	if dmakefile, err := os.Open(dmake_file_filename); err == nil {
+		err = get_vars_from_dmake_file(dmakefile, dmake_file_filename)
 		dmakefile.Close()
 		if err != nil {
 			return err
 		}
-		havefiles = len(srcs) > 0
+		havefiles = len(source_file_filenames) > 0
 	}
 	if !havefiles {
 		source_file_patterns := []string{"*.c", "*.cpp", "*.cc", "*.m", "*.mm"}
 		for _, pattern := range source_file_patterns {
-			if srcs, havefiles = glob(pattern); havefiles {
+			if source_file_filenames, havefiles = glob(pattern); havefiles {
 				break
 			}
 		}
@@ -276,33 +281,33 @@ func do_dmake(opath string) (err error) {
 		return fmt.Errorf("no C, Objective-C++, Objective-C or C++ source files found")
 	}
 	if *debug {
-		log.Printf("DEBUG: srcs=%v", srcs)
+		log.Printf("DEBUG: source_file_filenames=%v", source_file_filenames)
 	}
 
 	// No module type defined, determine executable or library, look for main().
 	//
-	if kind == "" {
-		for _, path := range srcs {
+	if output_file_type == "" {
+		for _, path := range source_file_filenames {
 			if main_defined_in_source_file(path) {
-				kind, output_filename = "--exe", form_exe_filename(opath)
+				output_file_type, output_filename = exe_file_type, form_exe_filename(opath)
 				break
 			}
 		}
-		if kind == "" {
+		if output_file_type == "" {
 			if *dllflag {
-				kind, output_filename = "--dll", form_dll_filename(opath)
+				output_file_type, output_filename = dll_file_type, form_dll_filename(opath)
 			} else {
-				kind, output_filename = "--lib", form_lib_filename(opath)
+				output_file_type, output_filename = lib_file_type, form_lib_filename(opath)
 			}
 		}
 		if *debug {
-			log.Printf("DEBUG: inferred module type %q with name %q", kind, output_filename)
+			log.Printf("DEBUG: inferred module type %q with name %q", output_file_type, output_filename)
 		}
 	}
 
 	if cleaning {
 		os.Remove(output_filename)
-		for _, path := range srcs {
+		for _, path := range source_file_filenames {
 			clean := func(path string, deletable string) {
 				os.Remove(path)
 				dir := filepath.Dir(path)
@@ -317,13 +322,13 @@ func do_dmake(opath string) (err error) {
 		return nil
 	}
 
-	args := make([]string, 0, 5+len(srcs))
+	args := make([]string, 0, 5+len(source_file_filenames))
 	if *debug {
 		args = append(args, "--debug")
 	}
-	args = append(args, kind, output_filename)
+	args = append(args, output_file_type, output_filename)
 	args = append(args, "--objdir", objsdir)
-	args = append(args, srcs...)
+	args = append(args, source_file_filenames...)
 	cmd := exec.Command("dcc", args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
 	os.MkdirAll(objsdir, 0777)
@@ -333,9 +338,9 @@ func do_dmake(opath string) (err error) {
 	err = cmd.Run()
 
 	if err == nil && installing {
-		dir := get_install_dir(kind, *prefix)
+		dir := get_install_dir(output_file_type, *prefix)
 		mode := "0444"
-		if kind == "--exe" {
+		if output_file_type == exe_file_type {
 			mode = "0555"
 		}
 		args = []string{"-c", "-m", mode, output_filename, filepath.Join(dir, output_filename)}
@@ -351,7 +356,7 @@ func do_dmake(opath string) (err error) {
 }
 
 func get_install_dir(kind, path string) string {
-	if kind == "--exe" {
+	if kind == exe_file_type {
 		return filepath.Join(path, "bin")
 	}
 	return filepath.Join(path, "lib")
@@ -374,31 +379,31 @@ func get_vars_from_dmake_file(dmakefile *os.File, path string) error {
 	var found bool
 	patterns, found = vars["SRCS"]
 	if found {
-		srcs, err = expand_glob_patterns(patterns, srcs)
+		source_file_filenames, err = expand_glob_patterns(patterns, source_file_filenames)
 		if err != nil {
 			return err
 		}
-		if len(srcs) < 1 {
+		if len(source_file_filenames) < 1 {
 			return fmt.Errorf("SRCS=%s matches no source files", patterns)
 		}
 	}
 
 	check_var := func(varname, kindstr string, fn func(string) string) error {
 		if name, exists := vars[varname]; exists {
-			if kind != "" && kind != kindstr {
-				return fmt.Errorf("%s definition conflicts with %s", varname, kind)
+			if output_file_type != "" && output_file_type != kindstr {
+				return fmt.Errorf("%s definition conflicts with %s", varname, output_file_type)
 			}
-			kind, output_filename = kindstr, fn(name)
+			output_file_type, output_filename = kindstr, fn(name)
 		}
 		return nil
 	}
-	if err = check_var("DLL", "--dll", form_dll_filename); err != nil {
+	if err = check_var("DLL", dll_file_type, form_dll_filename); err != nil {
 		return err
 	}
-	if err = check_var("EXE", "--exe", form_exe_filename); err != nil {
+	if err = check_var("EXE", exe_file_type, form_exe_filename); err != nil {
 		return err
 	}
-	if err = check_var("LIB", "--lib", form_lib_filename); err != nil {
+	if err = check_var("LIB", lib_file_type, form_lib_filename); err != nil {
 		return err
 	}
 	return nil
@@ -407,9 +412,9 @@ func get_vars_from_dmake_file(dmakefile *os.File, path string) error {
 // glob expands a glob-pattern to locate source files
 // and filters out any files for so-called _other platforms_.
 //
-func glob(glob string) ([]string, bool) {
-	filenames, err := filepath.Glob(glob)
-	maybe_fatal(err)
+func glob(pattern string) ([]string, bool) {
+	filenames, err := filepath.Glob(pattern)
+	possibly_fatal_error(err)
 	if len(filenames) == 0 {
 		return nil, false
 	}
@@ -516,30 +521,30 @@ func expand_glob_patterns(patterns string, names []string) ([]string, error) {
 	return names, nil
 }
 
-func maybe_fatal(err error) {
+func possibly_fatal_error(err error) {
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
 func get_system_name() string {
-	if os := runtime.GOOS; os != "darwin" {
-		return os
+	name := runtime.GOOS
+	if name == "darwin" {
+		name = "macos"
 	}
-	return "macos"
+	return name
 }
 
-// read_dmake_file reads a 'dmakefile' from the given io.Reader
-// and returns a Vars containing the variables defined by the
-// file. Variables are of the form <name> = <value> where
-// names are space separated tokens. Values may refer to
-// previously defined values via '$' prefixed names.
-// Blank lines and those beginning with a '#' are ignored.
+// Read a 'dmakefile' from the given io.Reader and return a Vars
+// containing the variables it defines. Variables are of the form
+// <name> = <value>, names is a single, space separated, token. Values
+// may refer to previously defined values via '$' prefixed names.
+// Blank lines and those beginning with '#' are ignored.
 //
 func read_dmake_file(r io.Reader, path string) (Vars, error) {
-	v := make(Vars)
-	v["OS"] = get_system_name()
-	v["ARCH"] = runtime.GOARCH
+	vars := make(Vars)
+	vars["OS"] = get_system_name()
+	vars["ARCH"] = runtime.GOARCH
 	lineno := 0
 	fail := func(message string) (Vars, error) {
 		return nil, fmt.Errorf("%s:%d - %s", path, lineno, message)
@@ -562,16 +567,14 @@ func read_dmake_file(r io.Reader, path string) (Vars, error) {
 			return fail("malformed line, spaces in key")
 		}
 		val := strings.TrimSpace(line[index+1:])
-		val = interpolate_var_references(val, &v)
-		v[key] = val
+		val = vars.interpolate_var_references(val)
+		vars[key] = val
 	}
 
-	return v, nil
+	return vars, nil
 }
 
-// Expand expands any '$' prefixed variable references in the given string.
-//
-func interpolate_var_references(s string, v *Vars) string {
+func (v *Vars) interpolate_var_references(s string) string {
 	r := strings.Fields(s)
 	for index, word := range r {
 		if word[0] == '$' {
@@ -584,10 +587,6 @@ func interpolate_var_references(s string, v *Vars) string {
 	return strings.Join(r, " ")
 }
 
-// is_common_source_code_subdirectoy determines if a base pathname, the name of
-// a directory, represents the name of a typical source code
-// sub-directory used in project hierachies.
-//
 func is_common_source_code_subdirectory(dir string) bool {
 	word := strings.ToLower(dir)
 	if word == "src" {
@@ -599,9 +598,6 @@ func is_common_source_code_subdirectory(dir string) bool {
 	return false
 }
 
-// get_env_var returns the value of an environment variable or, if it
-// is not set, a default value.
-//
 func get_env_var(name, def string) string {
 	if s := os.Getenv(name); s != "" {
 		return s
