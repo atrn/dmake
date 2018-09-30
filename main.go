@@ -23,35 +23,34 @@ import (
 )
 
 const (
-	srcsfileFilename  = "SRCS"
-	dmakefileFilename = ".dmake"
-	defaultDepsDir    = ".dcc.d"
-	defaultObjsDir    = ".dmake.o"
+	dot_dmake_file_filename = ".dmake"
+	default_dep_file_dir    = ".dcc.d"
+	default_obj_file_dir    = ".dmake.o"
 )
 
 var (
-	srcs       []string // names of the source files
-	kind       = ""     // dcc option "--dll" | "--exe" | "--lib"
-	output     = ""     // output filename
-	cleaning   = false  // true if cleaning
-	installing = false  // true if installing
+	srcs            []string // names of the source files
+	kind            = ""     // dcc option "--dll" | "--exe" | "--lib"
+	output_filename = ""     // output filename
+	cleaning        = false  // true if cleaning
+	installing      = false  // true if installing
 
 	Cflag   = flag.String("C", "", "Change directory to `directory` before doing anything.")
 	oflag   = flag.String("o", "", "Define output `filename`.")
 	vflag   = flag.Bool("v", false, "Issue messages.")
 	kflag   = flag.Bool("k", false, "Keep going. Don't stop on error.")
 	dllflag = flag.Bool("dll", false, "Automatic dynamic, not static, libraries.")
-	prefix  = flag.String("prefix", Getenv("PREFIX", "/usr/local"), "Installation `path` prefix")
+	prefix  = flag.String("prefix", get_env_var("PREFIX", "/usr/local"), "Installation `path` prefix")
 	debug   = flag.Bool("zzz", false, "Enable debugging output and dcc's --debug switch.")
 
-	depsdir = Getenv("DCCDEPS", defaultDepsDir)
-	objsdir = Getenv("OBJDIR", defaultObjsDir)
+	depsdir = get_env_var("DCCDEPS", default_dep_file_dir)
+	objsdir = get_env_var("OBJDIR", default_obj_file_dir)
 
 	// Matches platforms other than this one. Used to filter *out*
 	// Go-style platform-specific filenames from the contents of a
 	// directory.
 	//
-	otherPlatforms *regexp.Regexp
+	other_platform_names *regexp.Regexp
 
 	// Really should make this stricter, e.g. match any of the following
 	// and their forms where the return type is on a separate line and
@@ -63,7 +62,7 @@ var (
 	//
 	// But this works for me...
 	//
-	mainregex = regexp.MustCompile("^[ \t]*(int)?[ \t]*main\\([^;]*")
+	main_function_regex = regexp.MustCompile("^[ \t]*(int)?[ \t]*main\\([^;]*")
 )
 
 func main() {
@@ -91,19 +90,19 @@ its a hack.`)
 
 	if *Cflag != "" {
 		err := os.Chdir(*Cflag)
-		FatalIf(err)
+		maybe_fatal(err)
 	}
 
 	cwd, err := os.Getwd()
-	FatalIf(err)
+	maybe_fatal(err)
 
-	output = filepath.Base(cwd)
-	if IsSourceCodeDirectory(output) {
-		output = filepath.Base(filepath.Dir(cwd))
+	output_filename = filepath.Base(cwd)
+	if is_common_source_code_subdirectory(output_filename) {
+		output_filename = filepath.Base(filepath.Dir(cwd))
 	}
 
 	if *oflag == "" {
-		*oflag = output
+		*oflag = output_filename
 	}
 
 	dirs := make([]string, 0)
@@ -140,17 +139,17 @@ its a hack.`)
 				usage()
 			}
 		case "dll":
-			kind, output = "--dll", DllFilename(*oflag)
+			kind, output_filename = "--dll", form_dll_filename(*oflag)
 			if cleaning = checkclean(); !cleaning {
 				installing = checkinstall()
 			}
 		case "exe":
-			kind, output = "--exe", ExeFilename(*oflag)
+			kind, output_filename = "--exe", form_exe_filename(*oflag)
 			if cleaning = checkclean(); !cleaning {
 				installing = checkinstall()
 			}
 		case "lib":
-			kind, output = "--lib", LibFilename(*oflag)
+			kind, output_filename = "--lib", form_lib_filename(*oflag)
 			if cleaning = checkclean(); !cleaning {
 				installing = checkinstall()
 			}
@@ -160,7 +159,7 @@ its a hack.`)
 	}
 
 	if len(dirs) == 0 {
-		err := RunDmake(*oflag)
+		err := do_dmake(*oflag)
 		if err != nil {
 			log.Println(err)
 			os.Exit(1)
@@ -169,7 +168,7 @@ its a hack.`)
 	}
 
 	for _, dir := range dirs {
-		if err := RunDmakeIn(dir); err != nil {
+		if err := do_dmake_in(dir); err != nil {
 			log.Println(err)
 			if !*kflag {
 				os.Exit(1)
@@ -221,88 +220,57 @@ func init() {
 			names = append(names, name)
 		}
 	}
-	otherPlatforms = regexp.MustCompile("_(" + strings.Join(names, "|") + ")\\.")
+	other_platform_names = regexp.MustCompile("_(" + strings.Join(names, "|") + ")\\.")
 }
 
-// RunDmakeIn runs dmake in the named directory.
+// do_dmake_in runs dmake in the named directory.
 //
-func RunDmakeIn(dir string) (err error) {
+func do_dmake_in(dir string) (err error) {
 	oldcwd, err := os.Getwd()
 	if err != nil {
-		return Detailed(err, "os.Getwd")
+		return more_detailed_error(err, "os.Getwd")
 	}
 	err = os.Chdir(dir)
 	if err != nil {
-		return Detailed(err, "os.Chdir %q", dir)
+		return more_detailed_error(err, "os.Chdir %q", dir)
 	}
 	if *vflag {
 		log.Println("entering directory", dir)
 	}
 	cwd, err2 := os.Getwd()
 	if err2 != nil {
-		return Detailed(err2, "os.Getwd")
+		return more_detailed_error(err2, "os.Getwd")
 	}
 	kind = ""
-	output = filepath.Base(cwd)
-	err = RunDmake(filepath.Base(cwd))
+	output_filename = filepath.Base(cwd)
+	err = do_dmake(filepath.Base(cwd))
 	if *vflag {
 		log.Println("leaving directory", dir)
 	}
 	err2 = os.Chdir(oldcwd)
 	if err == nil {
-		err = Detailed(err2, "os.Chdir %q", oldcwd)
+		err = more_detailed_error(err2, "os.Chdir %q", oldcwd)
 	}
 	return
 }
 
-// RunDmake
-//
-func RunDmake(opath string) (err error) {
-
-	var havefiles bool
-
-	if dmakefile, err := os.Open(dmakefileFilename); err == nil {
-		err = LoadDmakefile(dmakefile, dmakefileFilename)
+func do_dmake(opath string) (err error) {
+	havefiles := false
+	if dmakefile, err := os.Open(dot_dmake_file_filename); err == nil {
+		err = get_vars_from_dmake_file(dmakefile, dot_dmake_file_filename)
 		dmakefile.Close()
 		if err != nil {
 			return err
 		}
 		havefiles = len(srcs) > 0
 	}
-
 	if !havefiles {
-		var srcsfile *os.File
-		if srcsfile, err = os.Open(srcsfileFilename); err == nil {
-			srcs, err = ReadSrcs(srcsfile)
-			if err != nil {
-				return
+		source_file_patterns := []string{"*.c", "*.cpp", "*.cc", "*.m", "*.mm"}
+		for _, pattern := range source_file_patterns {
+			if srcs, havefiles = glob(pattern); havefiles {
+				break
 			}
-			if len(srcs) < 1 {
-				return fmt.Errorf("%s: file defines no sources", srcsfileFilename)
-			}
-			havefiles = true
-			srcsfile.Close()
-			if err != nil {
-				return
-			}
-		} else if !os.IsNotExist(err) {
-			return
 		}
-	}
-	if !havefiles {
-		srcs, havefiles = MatchFiles("*.cpp")
-	}
-	if !havefiles {
-		srcs, havefiles = MatchFiles("*.cc")
-	}
-	if !havefiles {
-		srcs, havefiles = MatchFiles("*.mm")
-	}
-	if !havefiles {
-		srcs, havefiles = MatchFiles("*.m")
-	}
-	if !havefiles {
-		srcs, havefiles = MatchFiles("*.c")
 	}
 	if !havefiles {
 		return fmt.Errorf("no C, Objective-C++, Objective-C or C++ source files found")
@@ -315,25 +283,25 @@ func RunDmake(opath string) (err error) {
 	//
 	if kind == "" {
 		for _, path := range srcs {
-			if FileDefinesMain(path) {
-				kind, output = "--exe", ExeFilename(opath)
+			if main_defined_in_source_file(path) {
+				kind, output_filename = "--exe", form_exe_filename(opath)
 				break
 			}
 		}
 		if kind == "" {
 			if *dllflag {
-				kind, output = "--dll", DllFilename(opath)
+				kind, output_filename = "--dll", form_dll_filename(opath)
 			} else {
-				kind, output = "--lib", LibFilename(opath)
+				kind, output_filename = "--lib", form_lib_filename(opath)
 			}
 		}
 		if *debug {
-			log.Printf("DEBUG: inferred module type %q with name %q", kind, output)
+			log.Printf("DEBUG: inferred module type %q with name %q", kind, output_filename)
 		}
 	}
 
 	if cleaning {
-		os.Remove(output)
+		os.Remove(output_filename)
 		for _, path := range srcs {
 			clean := func(path string, deletable string) {
 				os.Remove(path)
@@ -342,9 +310,9 @@ func RunDmake(opath string) (err error) {
 					os.RemoveAll(dir)
 				}
 			}
-			ofile := ObjectFile(path)
+			ofile := object_file_filename(path)
 			clean(ofile, objsdir)
-			clean(DepsFile(ofile), depsdir)
+			clean(dependency_file(ofile), depsdir)
 		}
 		return nil
 	}
@@ -353,7 +321,7 @@ func RunDmake(opath string) (err error) {
 	if *debug {
 		args = append(args, "--debug")
 	}
-	args = append(args, kind, output)
+	args = append(args, kind, output_filename)
 	args = append(args, "--objdir", objsdir)
 	args = append(args, srcs...)
 	cmd := exec.Command("dcc", args...)
@@ -365,12 +333,12 @@ func RunDmake(opath string) (err error) {
 	err = cmd.Run()
 
 	if err == nil && installing {
-		dir := installdir(kind, *prefix)
+		dir := get_install_dir(kind, *prefix)
 		mode := "0444"
 		if kind == "--exe" {
 			mode = "0555"
 		}
-		args = []string{"-c", "-m", mode, output, filepath.Join(dir, output)}
+		args = []string{"-c", "-m", mode, output_filename, filepath.Join(dir, output_filename)}
 		cmd = exec.Command("/usr/bin/install", args...)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
 		if *debug {
@@ -382,14 +350,14 @@ func RunDmake(opath string) (err error) {
 	return
 }
 
-func installdir(kind, path string) string {
+func get_install_dir(kind, path string) string {
 	if kind == "--exe" {
 		return filepath.Join(path, "bin")
 	}
 	return filepath.Join(path, "lib")
 }
 
-// LoadDmakefile reads the dmakefile and looks for the
+// get_vars_from_dmake_file reads the dmakefile and looks for the
 // standard variables:
 //
 //	SRCS	glob pattern matching source files
@@ -397,8 +365,8 @@ func installdir(kind, path string) string {
 //	LIB	output a static lib with the defined name
 //	EXE	output an executable with the defined name
 //
-func LoadDmakefile(dmakefile *os.File, path string) error {
-	vars, err := ReadDmakefile(dmakefile, path)
+func get_vars_from_dmake_file(dmakefile *os.File, path string) error {
+	vars, err := read_dmake_file(dmakefile, path)
 	if err != nil {
 		return err
 	}
@@ -406,7 +374,7 @@ func LoadDmakefile(dmakefile *os.File, path string) error {
 	var found bool
 	patterns, found = vars["SRCS"]
 	if found {
-		srcs, err = Expand(patterns, srcs)
+		srcs, err = expand_glob_patterns(patterns, srcs)
 		if err != nil {
 			return err
 		}
@@ -415,40 +383,39 @@ func LoadDmakefile(dmakefile *os.File, path string) error {
 		}
 	}
 
-	checkVar := func(varname, kindstr string, fn func(string) string) error {
+	check_var := func(varname, kindstr string, fn func(string) string) error {
 		if name, exists := vars[varname]; exists {
 			if kind != "" && kind != kindstr {
 				return fmt.Errorf("%s definition conflicts with %s", varname, kind)
 			}
-			kind, output = kindstr, fn(name)
+			kind, output_filename = kindstr, fn(name)
 		}
 		return nil
 	}
-
-	if err = checkVar("DLL", "--dll", DllFilename); err != nil {
+	if err = check_var("DLL", "--dll", form_dll_filename); err != nil {
 		return err
 	}
-	if err = checkVar("EXE", "--exe", ExeFilename); err != nil {
+	if err = check_var("EXE", "--exe", form_exe_filename); err != nil {
 		return err
 	}
-	if err = checkVar("LIB", "--lib", LibFilename); err != nil {
+	if err = check_var("LIB", "--lib", form_lib_filename); err != nil {
 		return err
 	}
 	return nil
 }
 
-// MatchFiles expands a glob-pattern to locate source files
+// glob expands a glob-pattern to locate source files
 // and filters out any files for so-called _other platforms_.
 //
-func MatchFiles(glob string) ([]string, bool) {
+func glob(glob string) ([]string, bool) {
 	filenames, err := filepath.Glob(glob)
-	FatalIf(err)
+	maybe_fatal(err)
 	if len(filenames) == 0 {
 		return nil, false
 	}
 	names := make([]string, 0, len(filenames))
 	for _, name := range filenames {
-		if otherPlatforms.MatchString(name) {
+		if other_platform_names.MatchString(name) {
 			continue
 		}
 		names = append(names, name)
@@ -456,11 +423,11 @@ func MatchFiles(glob string) ([]string, bool) {
 	return names, len(names) > 0
 }
 
-// FileDefinesMain determines if a file defines a main() function
+// main_defined_in_source_file determines if a file defines a main() function
 // indicating the file represents a _program_ rather than just
 // being part of a _library_.
 //
-func FileDefinesMain(path string) bool {
+func main_defined_in_source_file(path string) bool {
 	file, err := os.Open(path)
 	if err != nil {
 		log.Print(err)
@@ -469,16 +436,16 @@ func FileDefinesMain(path string) bool {
 	defer file.Close()
 	for scanner := bufio.NewScanner(file); scanner.Scan(); {
 		line := scanner.Text()
-		if mainregex.MatchString(line) {
+		if main_function_regex.MatchString(line) {
 			return true
 		}
 	}
 	return false
 }
 
-// MakeFilename creates a filename from a prefix part, a stem and suffix.
+// form_filename creates a filename from a prefix part, a stem and suffix.
 //
-func MakeFilename(prefix, stem, suffix string) string {
+func form_filename(prefix, stem, suffix string) string {
 	dir, name := filepath.Dir(stem), filepath.Base(stem)
 	if prefix != "" && !strings.HasPrefix(name, prefix) {
 		name = prefix + name
@@ -489,39 +456,39 @@ func MakeFilename(prefix, stem, suffix string) string {
 	return filepath.Clean(filepath.Join(dir, name))
 }
 
-// LibFilename returns the name of a static library file with the given stem.
+// form_lib_filename returns the name of a static library file with the given stem.
 //
-func LibFilename(stem string) (name string) {
-	return MakeFilename(ext.libprefix, stem, ext.libsuffix)
+func form_lib_filename(stem string) (name string) {
+	return form_filename(ext.libprefix, stem, ext.libsuffix)
 }
 
-// DllFilename returns the name of a dynamic library file with the given stem.
+// form_dll_filename returns the name of a dynamic library file with the given stem.
 //
-func DllFilename(stem string) (name string) {
-	return MakeFilename(ext.libprefix, stem, ext.dllsuffix)
+func form_dll_filename(stem string) (name string) {
+	return form_filename(ext.libprefix, stem, ext.dllsuffix)
 }
 
-// ExeFilename returns the name of an executable file with the given stem.
+// form_exe_filename returns the name of an executable file with the given stem.
 // This exists to append a ".exe" on Windows.
 //
-func ExeFilename(stem string) (name string) {
-	name = MakeFilename("", stem, ext.exesuffix)
+func form_exe_filename(stem string) (name string) {
+	name = form_filename("", stem, ext.exesuffix)
 	return
 }
 
-// ObjectFile returns the name of an object file given the
+// object_file_filename returns the name of an object file given the
 // name of a source file.
 //
-func ObjectFile(path string) string {
+func object_file_filename(path string) string {
 	path = filepath.Clean(filepath.Join(filepath.Join(filepath.Dir(path), objsdir), filepath.Base(path)))
 	return strings.TrimSuffix(path, filepath.Ext(path)) + ext.objsuffix
 }
 
-// DepsFile returns the name of the dcc dependency file
+// dependency_file returns the name of the dcc dependency file
 // for an object file. This is used when cleaning to
 // remove dcc-generated files.
 //
-func DepsFile(path string) string {
+func dependency_file(path string) string {
 	dir, base := filepath.Dir(path), filepath.Base(path)
 	if strings.HasSuffix(dir, objsdir) {
 		return filepath.Join(dir, base)
@@ -530,36 +497,17 @@ func DepsFile(path string) string {
 	}
 }
 
-// ReadSrcs reads a "SRCS" file - a list of glob patterns
-// defining the names of the source files to be compiled.
-//
-func ReadSrcs(r io.Reader) ([]string, error) {
-	var names []string
-	var err error
-	for input := bufio.NewScanner(r); input.Scan(); {
-		line := strings.TrimSpace(input.Text())
-		if line == "" || line[0] == '#' {
-			continue
-		}
-		names, err = Expand(line, names)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return names, nil
-}
-
-func Detailed(err error, format string, args ...interface{}) error {
+func more_detailed_error(err error, format string, args ...interface{}) error {
 	return fmt.Errorf("%s (%s)", err, fmt.Sprintf(format, args...))
 }
 
-func Expand(patterns string, names []string) ([]string, error) {
+func expand_glob_patterns(patterns string, names []string) ([]string, error) {
 	for _, pattern := range strings.Fields(patterns) {
 		if paths, err := filepath.Glob(pattern); err != nil {
-			return nil, Detailed(err, "filepath.Glob %q", pattern)
+			return nil, more_detailed_error(err, "filepath.Glob %q", pattern)
 		} else {
 			for _, name := range paths {
-				if !otherPlatforms.MatchString(name) {
+				if !other_platform_names.MatchString(name) {
 					names = append(names, name)
 				}
 			}
@@ -568,38 +516,29 @@ func Expand(patterns string, names []string) ([]string, error) {
 	return names, nil
 }
 
-// FatalIf reports a possible fatal error and exits the program
-// if the error is non-nil.
-//
-func FatalIf(err error) {
+func maybe_fatal(err error) {
 	if err != nil {
-		Fatal(err)
+		log.Fatal(err)
 	}
 }
 
-// Fatal reports a fatal error and exits the program.
-//
-func Fatal(err error) {
-	log.Fatal(err)
-}
-
-func SystemName() string {
+func get_system_name() string {
 	if os := runtime.GOOS; os != "darwin" {
 		return os
 	}
 	return "macos"
 }
 
-// ReadDmakefile reads a 'dmakefile' from the given io.Reader
+// read_dmake_file reads a 'dmakefile' from the given io.Reader
 // and returns a Vars containing the variables defined by the
 // file. Variables are of the form <name> = <value> where
 // names are space separated tokens. Values may refer to
 // previously defined values via '$' prefixed names.
 // Blank lines and those beginning with a '#' are ignored.
 //
-func ReadDmakefile(r io.Reader, path string) (Vars, error) {
-	v := NewVars()
-	v["OS"] = SystemName()
+func read_dmake_file(r io.Reader, path string) (Vars, error) {
+	v := make(Vars)
+	v["OS"] = get_system_name()
 	v["ARCH"] = runtime.GOARCH
 	lineno := 0
 	fail := func(message string) (Vars, error) {
@@ -623,22 +562,16 @@ func ReadDmakefile(r io.Reader, path string) (Vars, error) {
 			return fail("malformed line, spaces in key")
 		}
 		val := strings.TrimSpace(line[index+1:])
-		val = v.Expand(val)
+		val = interpolate_var_references(val, &v)
 		v[key] = val
 	}
 
 	return v, nil
 }
 
-// NewVars returns a new Vars
-//
-func NewVars() Vars {
-	return make(Vars)
-}
-
 // Expand expands any '$' prefixed variable references in the given string.
 //
-func (v *Vars) Expand(s string) string {
+func interpolate_var_references(s string, v *Vars) string {
 	r := strings.Fields(s)
 	for index, word := range r {
 		if word[0] == '$' {
@@ -651,11 +584,11 @@ func (v *Vars) Expand(s string) string {
 	return strings.Join(r, " ")
 }
 
-// IsSourceCodeDirectoy determines if a base pathname, the
-// name of a directory, represents the name of a typical
-// source code sub-directory used in project hierachies.
+// is_common_source_code_subdirectoy determines if a base pathname, the name of
+// a directory, represents the name of a typical source code
+// sub-directory used in project hierachies.
 //
-func IsSourceCodeDirectory(dir string) bool {
+func is_common_source_code_subdirectory(dir string) bool {
 	word := strings.ToLower(dir)
 	if word == "src" {
 		return true
@@ -666,10 +599,10 @@ func IsSourceCodeDirectory(dir string) bool {
 	return false
 }
 
-// Getenv retrieves the value of an environment variable
-// or, if it is not set, returns a default value.
+// get_env_var returns the value of an environment variable or, if it
+// is not set, a default value.
 //
-func Getenv(name, def string) string {
+func get_env_var(name, def string) string {
 	if s := os.Getenv(name); s != "" {
 		return s
 	}
