@@ -37,7 +37,6 @@ var (
 	output_file_type      = ""     // dcc option "--dll" | "--exe" | "--lib"
 	output_filename       = ""     // output filename
 
-	Cflag   = flag.String("C", "", "Change directory to `directory` before doing anything.")
 	oflag   = flag.String("o", "", "Define output `filename`.")
 	vflag   = flag.Bool("v", false, "Issue messages.")
 	kflag   = flag.Bool("k", false, "Keep going. Don't stop on error.")
@@ -93,11 +92,6 @@ its a hack.`)
 		flag.PrintDefaults()
 	}
 	flag.Parse()
-
-	if *Cflag != "" {
-		err := os.Chdir(*Cflag)
-		possibly_fatal_error(err)
-	}
 
 	cwd, err := os.Getwd()
 	possibly_fatal_error(err)
