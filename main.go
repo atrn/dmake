@@ -237,7 +237,7 @@ func do_dmake_in(dir string, cleaning bool, installing bool, verbose bool) (err 
 		log.Println("leaving directory", dir)
 	}
 	err2 = os.Chdir(oldcwd)
-	if err == nil {
+	if err == nil && err2 != nil {
 		err = more_detailed_error(err2, "os.Chdir %q", oldcwd)
 	}
 	return
