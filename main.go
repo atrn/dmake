@@ -31,20 +31,42 @@ const (
 	lib_file_type        = "--lib"
 )
 
+// The state used in do_dmake. Collecting this for the time being
+// until I can be bothered to re-factor things as methods over this
+// and remove the globals which can make the sub-directory dmakes
+// simpler to do well.
+//
+// type state struct {
+//	source_file_filenames []string
+//	subdirectory_names    []string
+//	output_file_type      string
+//	output_filename       string
+//	installation_prefix   string
+//	dependency_file_dir   string
+//	object_file_dir       string
+//	build_dlls            bool
+// }
+
 var (
 	source_file_filenames []string // names of the source files
 	subdirectory_names    []string // names of any sub-directories
-	output_file_type      = ""     // dcc option "--dll" | "--exe" | "--lib"
+	output_file_type      = ""     // a dcc option, "--dll" | "--exe" | "--lib"
 	output_filename       = ""     // output filename
+	installation_prefix   = ""
 
 	oflag   = flag.String("o", "", "Define output `filename`.")
 	vflag   = flag.Bool("v", false, "Issue messages.")
 	kflag   = flag.Bool("k", false, "Keep going. Don't stop on first error.")
 	dllflag = flag.Bool("dll", false, "Create dynamic libraries.")
-	prefix  = flag.String("prefix", get_env_var("PREFIX", "/usr/local"), "Installation `path` prefix")
+	prefix  = flag.String("prefix", get_env_var("PREFIX", ""), "Installation `path` prefix")
 	debug   = flag.Bool("zzz", false, "Enable debug output and pass dcc the --debug option.")
 	depsdir = get_env_var("DCCDEPS", default_dep_file_dir)
 	objsdir = get_env_var("OBJDIR", default_obj_file_dir)
+
+	// The platform-specific collection of file name extensions
+	// and prefixes.
+	//
+	platform *extensions
 
 	// This matches platforms **other** than this one. This is
 	// used to ignore files using Go-style platform-specific
@@ -91,6 +113,8 @@ its a hack.`)
 
 	installing := false
 	cleaning := false
+
+	installation_prefix = *prefix
 
 	cwd, err := os.Getwd()
 	possibly_fatal_error(err)
@@ -165,7 +189,7 @@ its a hack.`)
 	}
 
 	for _, dir := range subdirectory_names {
-		if err := do_dmake_in(dir, cleaning, installing); err != nil {
+		if err := do_dmake_in(dir, cleaning, installing, *vflag); err != nil {
 			log.Println(err)
 			if !*kflag {
 				os.Exit(1)
@@ -189,57 +213,7 @@ func (v *Vars) interpolate_var_references(s string) string {
 	return strings.Join(r, " ")
 }
 
-// platform-specific file naming stuff
-//
-type extensions struct {
-	objsuffix string
-	exesuffix string
-	libprefix string
-	libsuffix string
-	dllprefix string
-	dllsuffix string
-}
-
-var (
-	ext *extensions
-)
-
-func init() {
-	var (
-		win = extensions{".obj", ".exe", "", ".lib", "", ".dll"}
-		mac = extensions{".o", "", "lib", ".a", "lib", ".dylib"}
-		elf = extensions{".o", "", "lib", ".a", "lib", ".so"}
-	)
-	name := get_system_name()
-	switch name {
-	case "windows":
-		ext = &win
-	case "macos":
-		ext = &mac
-	default:
-		ext = &elf
-	}
-	platforms := []string{
-		"darwin",
-		"freebsd",
-		"linux",
-		"netbsd",
-		"openbsd",
-		"windows",
-		"solaris",
-	}
-	var names []string
-	for _, name := range platforms {
-		if name != runtime.GOOS {
-			names = append(names, name)
-		}
-	}
-	other_platform_names = regexp.MustCompile("_(" + strings.Join(names, "|") + ")\\.")
-}
-
-// do_dmake_in runs dmake in the named directory.
-//
-func do_dmake_in(dir string, cleaning bool, installing bool) (err error) {
+func do_dmake_in(dir string, cleaning bool, installing bool, verbose bool) (err error) {
 	oldcwd, err := os.Getwd()
 	if err != nil {
 		return more_detailed_error(err, "os.Getwd")
@@ -248,7 +222,7 @@ func do_dmake_in(dir string, cleaning bool, installing bool) (err error) {
 	if err != nil {
 		return more_detailed_error(err, "os.Chdir %q", dir)
 	}
-	if *vflag {
+	if verbose {
 		log.Println("entering directory", dir)
 	}
 	cwd, err2 := os.Getwd()
@@ -257,8 +231,9 @@ func do_dmake_in(dir string, cleaning bool, installing bool) (err error) {
 	}
 	output_file_type = ""
 	output_filename = filepath.Base(cwd)
+	source_file_filenames = make([]string, 0)
 	err = do_dmake(filepath.Base(cwd), cleaning, installing)
-	if *vflag {
+	if verbose {
 		log.Println("leaving directory", dir)
 	}
 	err2 = os.Chdir(oldcwd)
@@ -293,7 +268,8 @@ func do_dmake(opath string, cleaning bool, installing bool) (err error) {
 		log.Printf("DEBUG: source_file_filenames=%v", source_file_filenames)
 	}
 
-	// No module type defined, determine executable or library, look for main().
+	// If no module type is define we have to determine if the module is an
+	// executable or library. So we look for a main() function.
 	//
 	if output_file_type == "" {
 		for _, path := range source_file_filenames {
@@ -310,7 +286,7 @@ func do_dmake(opath string, cleaning bool, installing bool) (err error) {
 			}
 		}
 		if *debug {
-			log.Printf("DEBUG: inferred module type %q with name %q", output_file_type, output_filename)
+			log.Printf("DEBUG: module type interred to be %q named %q", output_file_type, output_filename)
 		}
 	}
 
@@ -347,7 +323,11 @@ func do_dmake(opath string, cleaning bool, installing bool) (err error) {
 	err = cmd.Run()
 
 	if err == nil && installing {
-		dir := get_install_dir(output_file_type, *prefix)
+		path := installation_prefix
+		if path == "" {
+			path = "."
+		}
+		dir := get_install_dir(output_file_type, path)
 		mode := "0444"
 		if output_file_type == exe_file_type {
 			mode = "0555"
@@ -378,6 +358,8 @@ func get_install_dir(kind, path string) string {
 //	DLL	output a dynamic lib with the defined name
 //	LIB	output a static lib with the defined name
 //	EXE	output an executable with the defined name
+//	DIRS	sub-directories to be built
+//	PREFIX	installation prefix
 //
 func get_vars_from_dmake_file(dmakefile *os.File, path string) error {
 	vars, err := read_dmake_file(dmakefile, path)
@@ -398,6 +380,12 @@ func get_vars_from_dmake_file(dmakefile *os.File, path string) error {
 		}
 	}
 
+	if path, found := vars["PREFIX"]; found {
+		if installation_prefix == "" {
+			installation_prefix = path
+		}
+	}
+
 	var directories string
 	directories, found = vars["DIRS"]
 	if found {
@@ -410,12 +398,13 @@ func get_vars_from_dmake_file(dmakefile *os.File, path string) error {
 		}
 	}
 
-	check_var := func(varname, kindstr string, fn func(string) string) error {
-		if name, exists := vars[varname]; exists {
-			if output_file_type != "" && output_file_type != kindstr {
-				return fmt.Errorf("%s definition conflicts with %s", varname, output_file_type)
+	check_var := func(name, file_type string, fn func(string) string) error {
+		if name, exists := vars[name]; exists {
+			if output_file_type != "" && output_file_type != file_type {
+				return fmt.Errorf("%s definition conflicts with %s", name, output_file_type)
 			}
-			output_file_type, output_filename = kindstr, fn(name)
+			output_file_type = file_type
+			output_filename = fn(name)
 		}
 		return nil
 	}
@@ -481,32 +470,23 @@ func form_filename_from(path, prefix, suffix string) string {
 	return filepath.Clean(filepath.Join(dirname, basename))
 }
 
-// form_lib_filename returns the name of a static library file with the given stem.
-//
 func form_lib_filename(stem string) (name string) {
-	return form_filename_from(stem, ext.libprefix, ext.libsuffix)
+	return form_filename_from(stem, platform.libprefix, platform.libsuffix)
 }
 
-// form_dll_filename returns the name of a dynamic library file with the given stem.
-//
 func form_dll_filename(stem string) (name string) {
-	return form_filename_from(stem, ext.dllprefix, ext.dllsuffix)
+	return form_filename_from(stem, platform.dllprefix, platform.dllsuffix)
 }
 
-// form_exe_filename returns the name of an executable file with the given stem.
-// This exists to append a ".exe" on Windows.
-//
 func form_exe_filename(stem string) (name string) {
-	name = form_filename_from(stem, "", ext.exesuffix)
+	name = form_filename_from(stem, "", platform.exesuffix)
 	return
 }
 
-// object_file_filename returns the name of an object file given the
-// name of a source file.
-//
 func object_file_filename(path string) string {
-	path = filepath.Clean(filepath.Join(filepath.Join(filepath.Dir(path), objsdir), filepath.Base(path)))
-	return strings.TrimSuffix(path, filepath.Ext(path)) + ext.objsuffix
+	dirname, basename := filepath.Dir(path), filepath.Base(path)
+	path = filepath.Clean(filepath.Join(filepath.Join(dirname, objsdir), basename))
+	return strings.TrimSuffix(path, filepath.Ext(basename)) + platform.objsuffix
 }
 
 func objects_dependency_file(path string) string {
@@ -606,4 +586,49 @@ func get_env_var(name, def string) string {
 		return s
 	}
 	return def
+}
+
+// platform-specific file naming stuff
+//
+
+type extensions struct {
+	objsuffix string
+	exesuffix string
+	libprefix string
+	libsuffix string
+	dllprefix string
+	dllsuffix string
+}
+
+func init() {
+	var (
+		win = extensions{".obj", ".exe", "", ".lib", "", ".dll"}
+		mac = extensions{".o", "", "lib", ".a", "lib", ".dylib"}
+		elf = extensions{".o", "", "lib", ".a", "lib", ".so"}
+	)
+	name := get_system_name()
+	switch name {
+	case "windows":
+		platform = &win
+	case "macos":
+		platform = &mac
+	default:
+		platform = &elf
+	}
+	platforms := []string{
+		"darwin",
+		"freebsd",
+		"linux",
+		"netbsd",
+		"openbsd",
+		"windows",
+		"solaris",
+	}
+	var names []string
+	for _, name := range platforms {
+		if name != runtime.GOOS {
+			names = append(names, name)
+		}
+	}
+	other_platform_names = regexp.MustCompile("_(" + strings.Join(names, "|") + ")\\.")
 }
