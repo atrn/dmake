@@ -31,10 +31,9 @@ const (
 	lib_file_type        = "--lib"
 )
 
-// The state used in do_dmake. Collecting this for the time being
-// until I can be bothered to re-factor things as methods over this
-// and remove the globals which can make the sub-directory dmakes
-// simpler to do well.
+// The state used in do_dmake. Collecting this until I can be bothered
+// to re-factor things as methods over this and remove the globals.
+// This will make sub-directory dmakes simpler.
 //
 // type state struct {
 //	source_file_filenames []string
@@ -48,11 +47,12 @@ const (
 // }
 
 var (
-	source_file_filenames []string // names of the source files
-	subdirectory_names    []string // names of any sub-directories
-	output_file_type      = ""     // a dcc option, "--dll" | "--exe" | "--lib"
-	output_filename       = ""     // output filename
-	installation_prefix   = ""
+	source_file_filenames   []string // names of the source files
+	subdirectory_names      []string // names of any sub-directories
+	output_file_type        = ""     // a dcc option, "--dll" | "--exe" | "--lib"
+	output_filename         = ""     // output filename
+	default_output_filename = ""     // default output filename
+	installation_prefix     = ""
 
 	oflag   = flag.String("o", "", "Define output `filename`.")
 	vflag   = flag.Bool("v", false, "Issue messages.")
@@ -118,14 +118,11 @@ its a hack.`)
 
 	cwd, err := os.Getwd()
 	possibly_fatal_error(err)
-	output_filename = filepath.Base(cwd)
-	if is_common_source_code_subdirectory(output_filename) {
-		output_filename = filepath.Base(filepath.Dir(cwd))
+	default_output_filename = filepath.Base(cwd)
+	if is_common_source_code_subdirectory(default_output_filename) {
+		default_output_filename = filepath.Base(filepath.Dir(cwd))
 	}
-
-	if *oflag == "" {
-		*oflag = output_filename
-	}
+	output_filename = default_output_filename
 
 	if narg := flag.NArg(); narg > 0 {
 		usage := func() {
@@ -160,17 +157,29 @@ its a hack.`)
 				usage()
 			}
 		case "dll":
-			output_file_type, output_filename = dll_file_type, form_dll_filename(*oflag)
+			if *oflag != "" {
+				output_file_type, output_filename = dll_file_type, *oflag
+			} else {
+				output_file_type, output_filename = dll_file_type, form_dll_filename(default_output_filename)
+			}
 			if cleaning = checkclean(); !cleaning {
 				installing = checkinstall()
 			}
 		case "exe":
-			output_file_type, output_filename = exe_file_type, form_exe_filename(*oflag)
+			if *oflag != "" {
+				output_file_type, output_filename = exe_file_type, *oflag
+			} else {
+				output_file_type, output_filename = exe_file_type, form_exe_filename(default_output_filename)
+			}
 			if cleaning = checkclean(); !cleaning {
 				installing = checkinstall()
 			}
 		case "lib":
-			output_file_type, output_filename = lib_file_type, form_lib_filename(*oflag)
+			if *oflag != "" {
+				output_file_type, output_filename = lib_file_type, *oflag
+			} else {
+				output_file_type, output_filename = lib_file_type, form_lib_filename(default_output_filename)
+			}
 			if cleaning = checkclean(); !cleaning {
 				installing = checkinstall()
 			}
@@ -180,7 +189,11 @@ its a hack.`)
 	}
 
 	if len(subdirectory_names) == 0 {
-		err := do_dmake(*oflag, cleaning, installing)
+		opath := *oflag
+		if opath == "" {
+			opath = output_filename
+		}
+		err := do_dmake(opath, cleaning, installing)
 		if err != nil {
 			log.Println(err)
 			os.Exit(1)
