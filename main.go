@@ -59,7 +59,7 @@ var (
 	kflag   = flag.Bool("k", false, "Keep going. Don't stop on first error.")
 	dllflag = flag.Bool("dll", false, "Create dynamic libraries.")
 	prefix  = flag.String("prefix", get_env_var("PREFIX", ""), "Installation `path` prefix")
-	debug   = flag.Bool("zzz", false, "Enable debug output and pass dcc the --debug option.")
+	debug   = flag.Bool("debug", false, "Enable debug output and pass dcc the --debug option.")
 	depsdir = get_env_var("DCCDEPS", default_dep_file_dir)
 	objsdir = get_env_var("OBJDIR", default_obj_file_dir)
 
@@ -299,7 +299,7 @@ func do_dmake(opath string, cleaning bool, installing bool) (err error) {
 			}
 		}
 		if *debug {
-			log.Printf("DEBUG: module type interred to be %q named %q", output_file_type, output_filename)
+			log.Printf("DEBUG: module inferred as \"%s %s\"", output_file_type, output_filename)
 		}
 	}
 
@@ -331,7 +331,7 @@ func do_dmake(opath string, cleaning bool, installing bool) (err error) {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
 	os.MkdirAll(objsdir, 0777)
 	if *debug {
-		log.Printf("EXEC: dcc %v", args)
+		log.Printf("RUN: dcc %v", args)
 	}
 	err = cmd.Run()
 
@@ -349,7 +349,7 @@ func do_dmake(opath string, cleaning bool, installing bool) (err error) {
 		cmd = exec.Command("/usr/bin/install", args...)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
 		if *debug {
-			log.Printf("EXEC: /usr/bin/install %v", args)
+			log.Printf("RUN: /usr/bin/install %v", args)
 		}
 		err = cmd.Run()
 	}
