@@ -537,11 +537,7 @@ func possibly_fatal_error(err error) {
 }
 
 func get_system_name() string {
-	name := runtime.GOOS
-	if name == "darwin" {
-		name = "macos"
-	}
-	return name
+	return runtime.GOOS
 }
 
 // Read a 'dmakefile' from the given io.Reader and return a Vars
@@ -623,14 +619,13 @@ func init() {
 	switch name {
 	case "windows":
 		platform = &win
-	case "macos":
+	case "darwin":
 		platform = &mac
 	default:
 		platform = &elf
 	}
 	platforms := []string{
 		"darwin",
-		"macos",
 		"freebsd",
 		"linux",
 		"netbsd",
