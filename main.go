@@ -630,6 +630,7 @@ func init() {
 	}
 	platforms := []string{
 		"darwin",
+		"macos",
 		"freebsd",
 		"linux",
 		"netbsd",
