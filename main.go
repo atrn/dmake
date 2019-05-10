@@ -58,8 +58,9 @@ var (
 	vflag   = flag.Bool("v", false, "Issue messages.")
 	kflag   = flag.Bool("k", false, "Keep going. Don't stop on first error.")
 	dllflag = flag.Bool("dll", false, "Create dynamic libraries.")
-	prefix  = flag.String("prefix", get_env_var("PREFIX", ""), "Installation `path` prefix")
+	prefix  = flag.String("prefix", get_env_var("PREFIX", ""), "Installation `path` prefix.")
 	debug   = flag.Bool("debug", false, "Enable debug output and pass dcc the --debug option.")
+	chdir   = flag.String("C", "", "Change to `directory` before doing anything.")
 	depsdir = get_env_var("DCCDEPS", default_dep_file_dir)
 	objsdir = get_env_var("OBJDIR", default_obj_file_dir)
 
@@ -110,6 +111,12 @@ its a hack.`)
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+
+	if *chdir != "" {
+		if err := os.Chdir(*chdir); err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	installing := false
 	cleaning := false
