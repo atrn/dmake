@@ -25,7 +25,7 @@ import (
 const (
 	dmake_file_filename  = ".dmake"
 	default_dep_file_dir = ".dcc.d"
-	default_obj_file_dir = ".dcc.o"
+	default_obj_file_dir = ".objs"
 	dll_file_type        = "--dll"
 	exe_file_type        = "--exe"
 	lib_file_type        = "--lib"
@@ -107,7 +107,9 @@ install under /usr/local/bin and libraries under /usr/local/lib.
 
 The second form runs dmake in each of the named directories in sequence,
 in this mode the module type cannot be defined on the command line. Yes,
-its a hack.`)
+its a hack.`,
+		)
+		fmt.Fprintln(os.Stderr)
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -136,22 +138,16 @@ its a hack.`)
 			flag.Usage()
 			os.Exit(1)
 		}
-		checkclean := func() bool {
+		checkarg := func(arg string) bool {
 			if narg < 2 {
 				return false
-			} else if narg > 2 || flag.Arg(1) != "clean" {
+			} else if narg > 2 || flag.Arg(1) != arg {
 				usage()
 			}
 			return true
 		}
-		checkinstall := func() bool {
-			if narg < 2 {
-				return false
-			} else if narg > 2 || flag.Arg(1) != "install" {
-				usage()
-			}
-			return true
-		}
+		checkclean := func() bool { return checkarg("clean") }
+		checkinstall := func() bool { return checkarg("install") }
 		switch flag.Arg(0) {
 		case "install":
 			installing = true
@@ -326,6 +322,8 @@ func do_dmake(opath string, cleaning bool, installing bool) (err error) {
 		}
 		return nil
 	}
+
+	os.MkdirAll(filepath.Dir(output_filename), 0777)
 
 	args := make([]string, 0, 5+len(source_file_filenames))
 	if *debug {
