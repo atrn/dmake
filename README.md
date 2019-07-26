@@ -85,6 +85,7 @@ removed instead of being built.
 			because no main function was found in
 			the sources, create a dynamic library
 			rather than a static library.
+    -quiet      Pass dcc its --quiet option.
 
 ## FILES
 
