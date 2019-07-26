@@ -54,15 +54,16 @@ var (
 	default_output_filename = ""     // default output filename
 	installation_prefix     = ""
 
-	oflag   = flag.String("o", "", "Define output `filename`.")
-	vflag   = flag.Bool("v", false, "Issue messages.")
-	kflag   = flag.Bool("k", false, "Keep going. Don't stop on first error.")
-	dllflag = flag.Bool("dll", false, "Create dynamic libraries.")
-	prefix  = flag.String("prefix", get_env_var("PREFIX", ""), "Installation `path` prefix.")
-	debug   = flag.Bool("debug", false, "Enable debug output and pass dcc the --debug option.")
-	chdir   = flag.String("C", "", "Change to `directory` before doing anything.")
-	depsdir = get_env_var("DCCDEPS", default_dep_file_dir)
-	objsdir = get_env_var("OBJDIR", default_obj_file_dir)
+	oflag     = flag.String("o", "", "Define output `filename`.")
+	vflag     = flag.Bool("v", false, "Issue messages.")
+	kflag     = flag.Bool("k", false, "Keep going. Don't stop on first error.")
+	dllflag   = flag.Bool("dll", false, "Create dynamic libraries.")
+	prefix    = flag.String("prefix", get_env_var("PREFIX", ""), "Installation `path` prefix.")
+	debug     = flag.Bool("debug", false, "Enable debug output and pass dcc the --debug option.")
+	chdir     = flag.String("C", "", "Change to `directory` before doing anything.")
+	quietflag = flag.Bool("quiet", false, "Avoid output")
+	depsdir   = get_env_var("DCCDEPS", default_dep_file_dir)
+	objsdir   = get_env_var("OBJDIR", default_obj_file_dir)
 
 	// The platform-specific collection of file name extensions
 	// and prefixes.
@@ -328,6 +329,9 @@ func do_dmake(opath string, cleaning bool, installing bool) (err error) {
 	args := make([]string, 0, 5+len(source_file_filenames))
 	if *debug {
 		args = append(args, "--debug")
+	}
+	if *quietflag {
+		args = append(args, "--quiet")
 	}
 	args = append(args, output_file_type, output_filename)
 	args = append(args, "--objdir", objsdir)
