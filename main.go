@@ -23,6 +23,7 @@ import (
 )
 
 const (
+	dccCommand         = "dcc"
 	dmakefileFilename  = ".dmake"
 	defaultDepsFileDir = ".dcc.d"
 	defaultObjFileDir  = ".objs"
@@ -336,11 +337,11 @@ func dmake(opath string, cleaning bool, installing bool) (err error) {
 	args = append(args, outputFileType, outputFilename)
 	args = append(args, "--objdir", objsdir)
 	args = append(args, sourceFileFilenames...)
-	cmd := exec.Command("dcc", args...)
+	cmd := exec.Command(dccCommand, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
 	os.MkdirAll(objsdir, 0777)
 	if *debug {
-		log.Printf("RUN: dcc %v", args)
+		log.Printf("RUN: %s %v", dccCommand, args)
 	}
 	err = cmd.Run()
 
