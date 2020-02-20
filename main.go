@@ -577,7 +577,7 @@ func readDmakeFile(r io.Reader, path string) (Vars, error) {
 		if index == 0 {
 			return fail("malformed line, no variable name before '='")
 		}
-		key := strings.TrimSpace(line[0 : index-1])
+		key := strings.TrimSpace(line[0:index])
 		if len(strings.Fields(key)) != 1 {
 			return fail("malformed line, spaces in key")
 		}
