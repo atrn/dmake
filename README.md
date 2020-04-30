@@ -1,51 +1,64 @@
 # dmake - build tool using dcc
 
-`dmake` is a build tool for C++/C that, despite its
-name, is *not* a make clone. dmake has no relation
-to make or other tools of its ilk.
+`dmake` is a tool for building C++ and C programs
+using the `dcc` compiler driver. dmake determines
+what is being built and invokes dcc to compile and
+link, if linking is required.
 
-dmake builds _modules_ and uses the dcc compiler-
-driver to do take care of the compilation task.
-dmake itself determines what and how to compile
-and uses dcc's automatic dependency-based compiles
-to keep compiled outputs up to date.
+Despite its name dmake is *not* a make clone and has
+no relation to make or tools of its ilk. The name `dmake`
+is used to provide users with a similar command to use
+when building.
 
-dmake offers some features to help the lazy
-programmer.  dmake can automatically determine
-if source code represents a program or library
-and invokes dcc accordingly to create an
-executable or a library.
+dmake works as a companion to the dcc compiler-driver using
+it to build _modules_ of different types. Modules are either
+programs, dynamic libraries or static libraries. The different
+module types are distinguished by the commands used to create
+them and the names of output files.
 
-The dmake _user-experience_ is typically a two step
-thing. The first step is where we create _options files_
-used by dcc when it is compiling. We usually just
-create one file, CXXFLAGS, to define compiler options.
-If we're building a program we may create another file,
-LIBS, to link in extra libraries.
+dmake uses dcc to take care of compilation. dmake determines what
+and how to build. Dcc's automatic dependency-based compilation and
+library generation are used ensure outputs up to date.
 
-With the options files in place usage is usually
-just typing `dmake`. It figures out what to do.
+dmake offers some features for the lazy programmer.  It automatically
+determines the name and type of artefact being built, program or library,
+and invokes dcc with appropriate options.
+
+The dmake _user-experience_ is typically a two step thing. The first
+step is where we create the _options files_ used by dcc to define the
+compiler and linker options. We can create a .dcc/CXXFLAGS file for
+compiler options, .dcc/LDFLAGS for linker options. If we're building a
+program we may create another file, .dcc/LIBS, to define any required
+libraries.
+
+Once the options files are in place usage is usually just typing the
+single word command `dmake`. It figures out what to do. If it can't
+you can tell it with commands like `dmake exe` and `dmake lib clean`.
 
 ## Using dmake
 
-dmake's actions depends upon how it in invoked. dmake
-can either infer the type of module being built, executable
-or library, or can be explicitly told the type of
-module to create.
+dmake's actions depends upon how it in invoked. It can either infer
+the module type, executable or library, or can be told the type.
 
-When invoked without arguments dmake attempts to infer
-the type of module from the contents of the source files
-(in the current directory).
+When invoked without arguments dmake attempts to infer the module type
+by reading the contents of the source files (in the current directory)
+and looking for a main() function (dmake is C and C++ specific).
 
-dmake first determines the names of all the source files. By
-default this is the names of the C++ (.cpp or .cc) or C (.c)
-files in the current directory.
+A simple regular expresion is used to locate main() and it will fail
+for more complex incantations, e.g. using macros to define main(),
+having weird arguments (Amiga) or other such silliness.
 
-If a file named 'SRCS' exists in the current directory that
-file is used instead to obtain source file names. A SRCS file
-contains filenames and/or glob patterns to define the names of
-the source files. The file allows filenames and patterns to
-occur on more than one line and allows #-based line comments.
+## Steps
+
+dmake first determines the names of all the source files. By default
+this is the names of the C++ (.cpp or .cc) or C (.c) files in the
+current directory.
+
+If a file named 'SRCS' exists in the current directory that file is
+used instead to obtain source file names. A SRCS file contains
+filenames and/or glob patterns to define the names of the source
+files. The file allows filenames and patterns to occur on more than
+one line and allows #-based line comments.
 
 If dmake was invoked without one of the 'exe', 'lib' or 'dll'
 arguments, dmake reads the source files looking for a main()

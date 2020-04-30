@@ -60,7 +60,7 @@ var (
 	kflag     = flag.Bool("k", false, "Keep going. Don't stop on first error.")
 	dllflag   = flag.Bool("dll", false, "Create dynamic libraries.")
 	prefix    = flag.String("prefix", getEnvVar("PREFIX", ""), "Installation `path` prefix.")
-	debug     = flag.Bool("debug", false, "Enable debug output and pass dcc the --debug option.")
+	debug     = flag.Bool("debug", false, "Enable dmake and dcc debug output.")
 	chdir     = flag.String("C", "", "Change to `directory` before doing anything.")
 	quietflag = flag.Bool("quiet", false, "Avoid output")
 	depsdir   = getEnvVar("DCCDEPS", defaultDepsFileDir)
