@@ -30,6 +30,14 @@ const (
 	dllFileType        = "--dll"
 	exeFileType        = "--exe"
 	libFileType        = "--lib"
+
+	// init options
+	defaultBuildMode    = "debug"
+	defaultCStandard    = "c11"
+	defaultCxxStandard  = "c++14"
+	defaultReleaseOptim = "-O2"
+	defaultDebugOptim   = "-O0"
+	defaultWarningOpts  = "-Wall -Wextra -pedantic"
 )
 
 // The state used in dmake. Collecting this until I can be bothered
@@ -96,20 +104,29 @@ func main() {
 	log.SetPrefix("dmake: ")
 
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: dmake [options] {exe|lib|dll} [install|clean]")
+		fmt.Fprintln(os.Stderr, "usage: dmake [options] [{exe|lib|dll} [install|clean]]")
 		fmt.Fprintln(os.Stderr, "       dmake [options] path...")
+		fmt.Fprintln(os.Stderr, "       dmake [options] init [<options>...]")
 		fmt.Fprintln(os.Stderr, `
 The first form builds, installs or cleans the specified module type located
-in the current directory. Building and cleaning do the obvious.
+in the current directory. Building and cleaning do the obvious things and
+invoke the dcc command to perform the actual building or cleaning.
 
-Installing runs the "/usr/bin/install" program to copy the build output
-to the appropriate directory under some "prefix" directory defined by
-the -prefix option. The default is "/usr/local" so, by default, executables
-install under /usr/local/bin and libraries under /usr/local/lib.
+The install target runs the "/usr/bin/install" program to copy the program
+or library to the appropriate installation directory under some "prefix"
+directory, defined by the -prefix option. The default prefix is "/usr/local"
+so, by default, executables install under /usr/local/bin and libraries go
+under /usr/local/lib.
 
-The second form runs dmake in each of the named directories in sequence,
-in this mode the module type cannot be defined on the command line. Yes,
-its a hack.`,
+The second form runs dmake in each of the named directories. No options
+may be specified so dmake's module inference is used when building.
+Further control is acheived by creating .dmake files.
+
+dmake init
+
+The third form of running dmake initializes a project's directory, creating
+dcc option files and a simple Makefile to direct everything using conventional
+make targets that invoke dmake appropriately.`,
 		)
 		fmt.Fprintln(os.Stderr)
 		flag.PrintDefaults()
@@ -148,6 +165,15 @@ its a hack.`,
 			}
 			return true
 		}
+
+		// dmake init ...
+		//
+		//
+		if flag.Arg(0) == "init" {
+			initProject(flag.Args()[1:], cwd, *oflag)
+			os.Exit(0)
+		}
+
 		checkclean := func() bool { return checkarg("clean") }
 		checkinstall := func() bool { return checkarg("install") }
 		switch flag.Arg(0) {
@@ -261,6 +287,52 @@ func dmakeInDirectory(dir string, cleaning bool, installing bool, verbose bool) 
 	return
 }
 
+var sourceFilePatterns = []string{"*.cpp", "*.cc", "*.c", "*.m", "*.mm"}
+
+func getSourceFileFilenames() (havefiles bool, lang string) {
+	var pattern string
+	for _, pattern = range sourceFilePatterns {
+		if sourceFileFilenames, havefiles = glob(pattern); havefiles {
+			break
+		}
+	}
+	if havefiles {
+		switch pattern {
+		case "*.c":
+			lang = "c"
+		case "*.cpp", "*.cc":
+			lang = "c++"
+		case "*.m":
+			lang = "objc"
+		case "*.mm":
+			lang = "objc++"
+		}
+	} else {
+		lang = ""
+	}
+	return
+}
+
+func determineOutput(opath string) (outputFileType string, outputFilename string) {
+	for _, path := range sourceFileFilenames {
+		if sourceFileDefinesMain(path) {
+			outputFileType, outputFilename = exeFileType, makeExeFilename(opath)
+			break
+		}
+	}
+	if outputFileType == "" {
+		if *dllflag {
+			outputFileType, outputFilename = dllFileType, makeDllFilename(opath)
+		} else {
+			outputFileType, outputFilename = libFileType, makeLibFilename(opath)
+		}
+	}
+	if *debug {
+		log.Printf("DEBUG: module inferred as \"%s %s\"", outputFileType, outputFilename)
+	}
+	return
+}
+
 func dmake(opath string, cleaning bool, installing bool) (err error) {
 	havefiles := false
 	if dmakefile, err := os.Open(dmakefileFilename); err == nil {
@@ -272,12 +344,7 @@ func dmake(opath string, cleaning bool, installing bool) (err error) {
 		havefiles = len(sourceFileFilenames) > 0
 	}
 	if !havefiles {
-		sourceFilePatterns := []string{"*.c", "*.cpp", "*.cc", "*.m", "*.mm"}
-		for _, pattern := range sourceFilePatterns {
-			if sourceFileFilenames, havefiles = glob(pattern); havefiles {
-				break
-			}
-		}
+		havefiles, _ = getSourceFileFilenames()
 	}
 	if !havefiles {
 		return fmt.Errorf("no C, Objective-C++, Objective-C or C++ source files found")
@@ -290,22 +357,7 @@ func dmake(opath string, cleaning bool, installing bool) (err error) {
 	// executable or library. So we look for a main() function.
 	//
 	if outputFileType == "" {
-		for _, path := range sourceFileFilenames {
-			if sourceFileDefinesMain(path) {
-				outputFileType, outputFilename = exeFileType, makeExeFilename(opath)
-				break
-			}
-		}
-		if outputFileType == "" {
-			if *dllflag {
-				outputFileType, outputFilename = dllFileType, makeDllFilename(opath)
-			} else {
-				outputFileType, outputFilename = libFileType, makeLibFilename(opath)
-			}
-		}
-		if *debug {
-			log.Printf("DEBUG: module inferred as \"%s %s\"", outputFileType, outputFilename)
-		}
+		outputFileType, outputFilename = determineOutput(opath)
 	}
 
 	if cleaning {
@@ -650,4 +702,228 @@ func init() {
 		}
 	}
 	otherPlatformNamesRegexp = regexp.MustCompile("_(" + strings.Join(names, "|") + ")\\.")
+}
+
+// dmake init [<name> <options>...]
+//
+// options :=
+//            exe | lib | dll
+// 	    | c | c++ | objc | objc++
+//          | c99 | c11
+//          | c++11 | c++14 | c++17 | c++20
+//          | debug | release
+//
+// Creates:
+//
+//	.dcc/CXXFLAGS (or .dcc/CFLAGS for C)
+//	.dcc/LDFLAGS (only if required)
+//	.dcc/LIBS (only if required)
+//	.dmake (only if required)
+//	Makefile
+//
+func initProject(args []string, cwd string, opath string) {
+
+	//  Don't do anything if there is already something called .dcc
+	//
+	if _, err := os.Stat(".dcc"); err == nil {
+		log.Fatal("a .dcc directory already exists, not continuing")
+	}
+	//  Don't do anything if there is already something called .dmake
+	//
+	if _, err := os.Stat(".dmake"); err == nil {
+		log.Fatal("a .dmake file already exists, not continuing")
+	}
+	//  Don't do anything if there is already something called Makefile
+	//
+	if _, err := os.Stat("Makefile"); err == nil {
+		log.Fatal("a Makefile already exists, not continuing")
+	}
+
+	var (
+		projectType string
+		outputName  string
+		language    string
+		languageStd string
+		buildMode   string
+	)
+
+	tag := func(w io.Writer) {
+		fmt.Fprintln(w, "# This file is read by dcc")
+		fmt.Fprintln(w)
+	}
+
+	touch := func(path string) {
+		file, err := os.Create(path)
+		if err != nil {
+			log.Fatal(err)
+		}
+		tag(file)
+		if err := file.Close(); err != nil {
+			os.Remove(path)
+			log.Fatal(err)
+		}
+	}
+
+	cannotAlreadyHave := func(value, arg, what string) string {
+		if value != "" {
+			log.Fatal(": " + what + " already specified")
+		}
+		return arg
+	}
+
+	_, language = getSourceFileFilenames()
+
+	for _, arg := range args {
+		switch arg {
+		case "c", "c++", "objc", "objc++":
+			if language != "" {
+				if language != arg {
+					log.Fatal(arg + ": conflicts with source file language, " + language)
+				}
+			} else {
+				language = arg
+			}
+		case "exe", "lib", "dll":
+			projectType = cannotAlreadyHave(projectType, arg, "project type")
+		case "debug", "release":
+			buildMode = cannotAlreadyHave(buildMode, arg, "build mode")
+		case "c99", "c11":
+			if language == "c++" {
+				log.Fatal("C standard specified but this is a C++ project")
+			}
+			languageStd = cannotAlreadyHave(languageStd, arg, "language standard")
+		case "c++11", "c++14", "c++17", "c++20":
+			if language == "c" {
+				log.Fatal("C++ standard specified but this is a C++ project")
+			}
+			languageStd = cannotAlreadyHave(languageStd, arg, "language standard")
+		default:
+			outputName = cannotAlreadyHave(outputName, arg, "output filename")
+		}
+	}
+
+	if outputName == "" {
+		outputName = defaultOutputFilename
+	}
+	if buildMode == "" {
+		buildMode = defaultBuildMode
+	}
+	if languageStd == "" {
+		if language == "c" {
+			languageStd = defaultCStandard
+		} else if language == "c++" {
+			languageStd = defaultCxxStandard
+		}
+	}
+
+	if err := os.Mkdir(".dcc", 0777); err != nil && !os.IsExist(err) {
+		log.Fatal(err)
+	}
+
+	//  Create the dcc options file, CFLAGS or CXXFLAGS.
+	//
+	optionsFilename := ".dcc/CFLAGS"
+	if language == "c++" {
+		optionsFilename = ".dcc/CXXFLAGS"
+	}
+
+	file, err := os.Create(optionsFilename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	tag(file)
+	if languageStd != "" {
+		fmt.Fprintf(file, "-std=%s\n", languageStd)
+	}
+	fmt.Fprintln(file, defaultWarningOpts)
+	fmt.Fprintln(file, "-g")
+	if buildMode == "release" {
+		fmt.Fprintln(file, "-DNDEBUG")
+		fmt.Fprintln(file, defaultReleaseOptim)
+	} else { // if buildMode == "debug"
+		fmt.Fprintln(file, "-DDEBUG")
+		fmt.Fprintln(file, defaultDebugOptim)
+	}
+
+	if err := file.Close(); err != nil {
+		os.Remove(optionsFilename)
+		log.Fatal(err)
+	}
+
+	var typeVarName string
+	switch projectType {
+	case "":
+		typeVarName = libFileType
+	case "exe":
+		projectType = exeFileType
+		typeVarName = "EXE"
+		touch(".dcc/LDFLAGS")
+		touch(".dcc/LIBS")
+	case "lib":
+		projectType = libFileType
+	case "dll":
+		projectType = dllFileType
+		typeVarName = "DLL"
+		touch(".dcc/LDFLAGS")
+	default:
+		log.Fatal(projectType + ": unsupported project type")
+	}
+
+	//  Do we need to create a .dmake file?
+	//
+	//  That depends. If the output name is not the same as the
+	//  default, then yes, we need to use a .dmake file in order
+	//  to set that name. But to do that we need to know what type
+	//  of project we're building so we can output the appropriate
+	//  "<type> = <name>" setting used in the .dmake file. Now, if
+	//  the user didn't tell us that we have to figure it out but
+	//  in that situation we need the names of the the source
+	//  files so we can scan them, looking for a definition of
+	//  main() to figure out if we're building an executable or a
+	//  library. Phew. But luckily we do that anyway and can
+	//  re-use the determineOutput function.
+	//
+	if outputName != defaultOutputFilename {
+		if projectType == "" {
+			projectType, _ = determineOutput(opath)
+		}
+		file, err := os.Create(".dmake")
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Fprintf(file, "%s = %s\n", typeVarName, outputName)
+		if err := file.Close(); err != nil {
+			os.Remove(".dmake")
+			log.Fatal(err)
+		}
+	}
+
+	// Output the Makefile
+	//
+	makefile, err := os.Create("Makefile")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	installDir := "$(prefix/lib"
+	if projectType == exeFileType {
+		installDir = "$(prefix)/bin"
+	}
+
+	fmt.Fprintf(makefile, `.PHONY: all clean install
+prefix?=/usr/local
+quiet?=@
+sudo?=
+all:; $(quiet) dmake
+clean:; $(quiet) dmake clean
+install: all; $(quiet) $(sudo) install -c %s %s
+`,
+		outputName,
+		installDir,
+	)
+
+	if err := makefile.Close(); err != nil {
+		os.Remove("Makefile")
+		log.Fatal(err)
+	}
 }
