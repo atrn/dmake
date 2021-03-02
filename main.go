@@ -139,9 +139,21 @@ make targets that invoke dmake appropriately.`,
 		}
 	}
 
+	env := prepareEnv()
+	narg := flag.NArg()
+	args := make([]string, 0, narg)
+	for _, arg := range flag.Args() {
+		eq := strings.Index(arg, "=")
+		if eq < 1 { // -1 or 0
+			args = append(args, arg)
+		} else { // arg of form <name>=<value>
+			env = append(env, arg)
+		}
+	}
+	narg = len(args)
+
 	installing := false
 	cleaning := false
-
 	installationPrefix = *prefix
 
 	cwd, err := os.Getwd()
@@ -152,7 +164,7 @@ make targets that invoke dmake appropriately.`,
 	}
 	outputFilename = defaultOutputFilename
 
-	if narg := flag.NArg(); narg > 0 {
+	if narg > 0 {
 		usage := func() {
 			flag.Usage()
 			os.Exit(1)
@@ -160,7 +172,7 @@ make targets that invoke dmake appropriately.`,
 		checkarg := func(arg string) bool {
 			if narg < 2 {
 				return false
-			} else if narg > 2 || flag.Arg(1) != arg {
+			} else if narg > 2 || args[1] != arg {
 				usage()
 			}
 			return true
@@ -169,14 +181,14 @@ make targets that invoke dmake appropriately.`,
 		// dmake init ...
 		//
 		//
-		if flag.Arg(0) == "init" {
-			initProject(flag.Args()[1:], cwd, *oflag)
+		if args[0] == "init" {
+			initProject(args[1:], cwd, *oflag)
 			os.Exit(0)
 		}
 
 		checkclean := func() bool { return checkarg("clean") }
 		checkinstall := func() bool { return checkarg("install") }
-		switch flag.Arg(0) {
+		switch args[0] {
 		case "install":
 			installing = true
 			if narg > 1 {
@@ -215,7 +227,7 @@ make targets that invoke dmake appropriately.`,
 				installing = checkinstall()
 			}
 		default:
-			subdirectoryNames = append(subdirectoryNames, flag.Args()...)
+			subdirectoryNames = append(subdirectoryNames, args...)
 		}
 	}
 
@@ -224,7 +236,7 @@ make targets that invoke dmake appropriately.`,
 		if opath == "" {
 			opath = outputFilename
 		}
-		err := dmake(opath, cleaning, installing)
+		err := dmake(opath, cleaning, installing, env)
 		if err != nil {
 			log.Println(err)
 			os.Exit(1)
@@ -233,7 +245,7 @@ make targets that invoke dmake appropriately.`,
 	}
 
 	for _, dir := range subdirectoryNames {
-		if err := dmakeInDirectory(dir, cleaning, installing, *vflag); err != nil {
+		if err := dmakeInDirectory(dir, cleaning, installing, *vflag, env); err != nil {
 			log.Println(err)
 			if !*kflag {
 				os.Exit(1)
@@ -257,7 +269,7 @@ func (v *Vars) interpolateVarReferences(s string) string {
 	return strings.Join(r, " ")
 }
 
-func dmakeInDirectory(dir string, cleaning bool, installing bool, verbose bool) (err error) {
+func dmakeInDirectory(dir string, cleaning bool, installing bool, verbose bool, env []string) (err error) {
 	oldcwd, err := os.Getwd()
 	if err != nil {
 		return moreDetailedError(err, "os.Getwd")
@@ -276,7 +288,7 @@ func dmakeInDirectory(dir string, cleaning bool, installing bool, verbose bool) 
 	outputFileType = ""
 	outputFilename = filepath.Base(cwd)
 	sourceFileFilenames = make([]string, 0)
-	err = dmake(filepath.Base(cwd), cleaning, installing)
+	err = dmake(filepath.Base(cwd), cleaning, installing, env)
 	if verbose {
 		log.Println("leaving directory", dir)
 	}
@@ -333,7 +345,7 @@ func determineOutput(opath string) (outputFileType string, outputFilename string
 	return
 }
 
-func dmake(opath string, cleaning bool, installing bool) (err error) {
+func dmake(opath string, cleaning bool, installing bool, env []string) (err error) {
 	havefiles := false
 	if dmakefile, err := os.Open(dmakefileFilename); err == nil {
 		err = getVarsFromDmakeFile(dmakefile, dmakefileFilename)
@@ -390,9 +402,11 @@ func dmake(opath string, cleaning bool, installing bool) (err error) {
 	args = append(args, "--objdir", objsdir)
 	args = append(args, sourceFileFilenames...)
 	cmd := exec.Command(dccCommand, args...)
+	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
 	os.MkdirAll(objsdir, 0777)
 	if *debug {
+		log.Printf("ENV: %v", env)
 		log.Printf("RUN: %s %v", dccCommand, args)
 	}
 	err = cmd.Run()
@@ -410,6 +424,7 @@ func dmake(opath string, cleaning bool, installing bool) (err error) {
 		args = []string{"-c", "-m", mode, outputFilename, filepath.Join(dir, outputFilename)}
 		cmd = exec.Command("/usr/bin/install", args...)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
+		cmd.Env = env
 		if *debug {
 			log.Printf("RUN: /usr/bin/install %v", args)
 		}
@@ -657,6 +672,37 @@ func getEnvVar(name, def string) string {
 		return s
 	}
 	return def
+}
+
+func prepareEnv() []string {
+	e := make([]string, 0)
+
+	goodVars := []string{
+		// Standard/common names
+		"HOME",
+		"LOGNAME",
+		"PATH",
+		"SHELL",
+		"TERM",
+		"TERMCAP",
+		"USER",
+		// dcc recognized
+		"CC",
+		"CXX",
+		"NJOBS",
+		"CCFILE",
+		"CXXFILE",
+		"CFLAGSFILE",
+		"CXXFLAGSFILE",
+		"LDFLAGSFILE",
+		"LIBSFILE",
+	}
+	for _, name := range goodVars {
+		if value := os.Getenv(name); value != "" {
+			e = append(e, fmt.Sprintf("%s=%s", name, value))
+		}
+	}
+	return e
 }
 
 // platform-specific file naming stuff
