@@ -182,7 +182,7 @@ make targets that invoke dmake appropriately.`,
 		//
 		//
 		if args[0] == "init" {
-			initProject(args[1:], cwd, *oflag)
+			initProject(args[1:], cwd)
 			os.Exit(0)
 		}
 
@@ -767,7 +767,7 @@ func init() {
 //	.dmake (only if required)
 //	Makefile
 //
-func initProject(args []string, cwd string, opath string) {
+func initProject(args []string, cwd string) {
 
 	//  Don't do anything if there is already something called .dcc
 	//
@@ -931,7 +931,7 @@ func initProject(args []string, cwd string, opath string) {
 	//
 	if outputName != defaultOutputFilename {
 		if projectType == "" {
-			projectType, _ = determineOutput(opath)
+			projectType, _ = determineOutput(*oflag)
 		}
 		file, err := os.Create(".dmake")
 		if err != nil {
