@@ -139,7 +139,7 @@ make targets that invoke dmake appropriately.`,
 		}
 	}
 
-	env := prepareEnv()
+	env := os.Environ()
 	narg := flag.NArg()
 	args := make([]string, 0, narg)
 	for _, arg := range flag.Args() {
@@ -672,37 +672,6 @@ func getEnvVar(name, def string) string {
 		return s
 	}
 	return def
-}
-
-func prepareEnv() []string {
-	e := make([]string, 0)
-
-	goodVars := []string{
-		// Standard/common names
-		"HOME",
-		"LOGNAME",
-		"PATH",
-		"SHELL",
-		"TERM",
-		"TERMCAP",
-		"USER",
-		// dcc recognized
-		"CC",
-		"CXX",
-		"NJOBS",
-		"CCFILE",
-		"CXXFILE",
-		"CFLAGSFILE",
-		"CXXFLAGSFILE",
-		"LDFLAGSFILE",
-		"LIBSFILE",
-	}
-	for _, name := range goodVars {
-		if value := os.Getenv(name); value != "" {
-			e = append(e, fmt.Sprintf("%s=%s", name, value))
-		}
-	}
-	return e
 }
 
 // platform-specific file naming stuff
