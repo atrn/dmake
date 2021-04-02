@@ -9,15 +9,12 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
-	"strings"
 )
 
 const (
@@ -38,14 +35,16 @@ const (
 )
 
 type Dmake struct {
-	sourceFiles   []string   // names of the source files
-	directories   []string   // names of any sub-directories
+	sourceFiles   []string   // names of the source files to be compiled
 	outputtype    OutputType // type of thing being built
 	outputname    string     // output filename
 	defaultoutput string     // default output filename
 	installprefix string     // where to install
+	directories   []string   // names of any sub-directories to be compiled
 }
 
+//  Create a new Dmake
+//
 func NewDmake(dir string, outputName string, installPrefix string) *Dmake {
 	dmake := &Dmake{installprefix: installPrefix}
 	basename := filepath.Base(dir)
@@ -60,14 +59,6 @@ func NewDmake(dir string, outputName string, installPrefix string) *Dmake {
 		dmake.outputname = dmake.defaultoutput
 	}
 	return dmake
-}
-
-func (dmake *Dmake) ReadDmakefile() error {
-	vars, err := readDmakeFile(dmakeFileFilename)
-	if err == nil || os.IsNotExist(err) {
-		err = dmake.initFromVars(vars)
-	}
-	return err
 }
 
 // Do dmake some-action in cwd
@@ -109,24 +100,26 @@ func (dmake *Dmake) Run(action Action, env []string) error {
 	}
 
 	if dmake.outputtype == UnknownOutputType {
-		dmake.outputtype = dmake.determineOutputType()
+		dmake.outputtype = dmake.DetermineOutputType()
 	}
 
 	if action == Cleaning {
-		return dmake.Clean()
+		return dmake.CleanAction()
 	}
 
-	err = dmake.Build(env)
+	err = dmake.BuildAction(env)
 	if err != nil {
 		return err
 	}
 
 	if action == Installing {
-		err = dmake.Install()
+		err = dmake.InstallAction()
 	}
 	return err
 }
 
+//  Perform some action across the defined sub-directories
+//
 func (dmake *Dmake) Directories(action Action, env []string) (result error) {
 	if *debug {
 		log.Printf("DEBUG: directories %q", dmake.directories)
@@ -163,7 +156,7 @@ func (dmake *Dmake) Directories(action Action, env []string) (result error) {
 
 // Build usng dcc
 //
-func (dmake *Dmake) Build(env []string) error {
+func (dmake *Dmake) BuildAction(env []string) error {
 	os.MkdirAll(filepath.Dir(dmake.outputname), 0777)
 	os.MkdirAll(objsdir, 0777)
 
@@ -189,7 +182,7 @@ func (dmake *Dmake) Build(env []string) error {
 
 // dmake clean in cwd
 //
-func (dmake *Dmake) Clean() error {
+func (dmake *Dmake) CleanAction() error {
 	os.Remove(dmake.outputname)
 	for _, srcfile := range dmake.sourceFiles {
 		doClean := func(path string, deletable string) {
@@ -204,12 +197,11 @@ func (dmake *Dmake) Clean() error {
 		doClean(DependenciesFilename(ofile, depsdir), depsdir)
 	}
 	return nil
-
 }
 
 // dmake install in cwd
 //
-func (dmake *Dmake) Install() error {
+func (dmake *Dmake) InstallAction() error {
 	path := dmake.installprefix
 	if path == "" {
 		path = "."
@@ -245,7 +237,7 @@ func (dmake *Dmake) Install() error {
 //	.dmake (only if required)
 //	Makefile
 //
-func (dmake *Dmake) Init(args []string, cwd string) error {
+func (dmake *Dmake) InitAction(args []string, cwd string) error {
 
 	var err error
 
@@ -278,6 +270,9 @@ func (dmake *Dmake) Init(args []string, cwd string) error {
 	}
 
 	_, language, err = SourceFiles()
+	if err != nil {
+		return err
+	}
 
 	for _, arg := range args {
 		switch arg {
@@ -372,7 +367,7 @@ func (dmake *Dmake) Init(args []string, cwd string) error {
 
 	switch projectType {
 	case "":
-		switch dmake.determineOutputType() {
+		switch dmake.DetermineOutputType() {
 		case ExeOutputType:
 			typeVarName = "EXE"
 		case DllOutputType:
@@ -451,7 +446,7 @@ install: all; $(quiet) $(sudo) install -c %s %s
 
 // Determine the type of the build product
 //
-func (dmake *Dmake) determineOutputType() OutputType {
+func (dmake *Dmake) DetermineOutputType() OutputType {
 	outputtype := UnknownOutputType
 	for _, path := range dmake.sourceFiles {
 		if DefinesMain(path) {
@@ -472,8 +467,21 @@ func (dmake *Dmake) determineOutputType() OutputType {
 	return outputtype
 }
 
-// setVarsFromDmakeFile reads the dmakefile and looks for the
-// standard variables:
+//  Read a .dmake file and set up the receiver from the variables
+//  defined in that file.
+//
+func (dmake *Dmake) ReadDmakefile() (err error) {
+	vars := make(Vars)
+	err = vars.ReadFromFile(dmakeFileFilename)
+	if err == nil {
+		err = dmake.InitFromVars(vars)
+	} else if os.IsNotExist(err) {
+		err = nil
+	}
+	return
+}
+
+//  Set up the receiver from a Vars. Specifically,
 //
 //	SRCS	glob pattern matching source files
 //	DLL	output a dynamic lib with the defined name
@@ -482,7 +490,7 @@ func (dmake *Dmake) determineOutputType() OutputType {
 //	DIRS	sub-directories to be built
 //	PREFIX	installation prefix
 //
-func (dmake *Dmake) initFromVars(vars Vars) error {
+func (dmake *Dmake) InitFromVars(vars Vars) error {
 	var patterns string
 	var found bool
 	var err error
@@ -526,79 +534,35 @@ func (dmake *Dmake) initFromVars(vars Vars) error {
 		}
 		return nil
 	}
-	if err = checkVar("DLL", DllOutputType, platform.dllFilename); err != nil {
+	if err = checkVar("DLL", DllOutputType, platform.DllFilename); err != nil {
 		return err
 	}
-	if err = checkVar("EXE", ExeOutputType, platform.exeFilename); err != nil {
+	if err = checkVar("EXE", ExeOutputType, platform.ExeFilename); err != nil {
 		return err
 	}
-	if err = checkVar("LIB", LibOutputType, platform.libFilename); err != nil {
+	if err = checkVar("LIB", LibOutputType, platform.LibFilename); err != nil {
 		return err
 	}
 	return nil
 }
 
-// Read a .dmake and return a Vars containing the variables it
-// defines.
+//  Add a directory to the receiver's list of directories to be dmake'd.
 //
-// Variables are of the form <name> = <value>, names is a single,
-// space separated, token. Values may refer to previously defined
-// values via '$' prefixed names.  Blank lines and those beginning
-// with '#' are ignored.
-//
-func readDmakeFile(path string) (Vars, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	vars := make(Vars)
-	vars["OS"] = runtime.GOOS
-	vars["ARCH"] = runtime.GOARCH
-
-	lineno := 0
-
-	fail := func(message string) (Vars, error) {
-		return nil, fmt.Errorf("%s:%d - %s", path, lineno, message)
-	}
-
-	for input := bufio.NewScanner(file); input.Scan(); {
-		lineno++
-		line := strings.TrimSpace(input.Text())
-		if line == "" || line[0] == '#' {
-			continue
-		}
-		index := strings.Index(line, "=")
-		if index == -1 {
-			return fail("malformed line, no '='")
-		}
-		if index == 0 {
-			return fail("malformed line, no variable name before '='")
-		}
-		key := strings.TrimSpace(line[0:index])
-		if len(strings.Fields(key)) != 1 {
-			return fail("malformed line, spaces in key")
-		}
-		val := strings.TrimSpace(line[index+1:])
-		val = vars.interpolateVarReferences(val)
-		vars[key] = val
-	}
-
-	return vars, nil
-}
-
 func (dmake *Dmake) AddDirectory(paths ...string) {
 	dmake.directories = append(dmake.directories, paths...)
 }
 
+//  Return true if the receiver has subdirectories.
+//
+func (dmake *Dmake) HaveDirs() bool {
+	return len(dmake.directories) > 0
+}
+
+//  Set the output type of the receiver.
+//
 func (dmake *Dmake) SetOutputType(outputtype OutputType) {
 	dmake.outputtype = outputtype
 	if dmake.outputname == "" {
 		dmake.outputname = FilenameForType(outputtype, dmake.defaultoutput)
 	}
-}
-
-func (dmake *Dmake) HaveDirs() bool {
-	return len(dmake.directories) > 0
 }

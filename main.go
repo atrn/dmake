@@ -64,8 +64,7 @@ func main() {
 	// Collect command line arguments and add any <name>=<value>
 	// to the environment slice passed to dcc.
 	//
-	narg := flag.NArg()
-	args := make([]string, 0, narg)
+	args := make([]string, 0, flag.NArg())
 	for _, arg := range flag.Args() {
 		eq := strings.Index(arg, "=")
 		if eq < 1 { // -1 or 0
@@ -74,7 +73,6 @@ func main() {
 			env = append(env, arg)
 		}
 	}
-	narg = len(args)
 
 	dmake := NewDmake(cwd, *oflag, *prefix)
 	initArgsIndex := -1
@@ -120,11 +118,11 @@ loop:
 	}
 
 	if dmake.HaveDirs() && *oflag != "" {
-		log.Fatal("-o flag not supported when building directories")
+		log.Fatal("-o flag not permitted when building directories")
 	}
 
 	if action == Initing {
-		err = dmake.Init(args[initArgsIndex:], cwd)
+		err = dmake.InitAction(args[initArgsIndex:], cwd)
 		if err != nil {
 			log.Fatal(err)
 		}

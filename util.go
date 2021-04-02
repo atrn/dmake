@@ -11,8 +11,10 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -68,7 +70,7 @@ func DefinesMain(path string) bool {
 func ObjectFilename(srcfile string, objsdir string) string {
 	dirname, basename := filepath.Dir(srcfile), filepath.Base(srcfile)
 	path := filepath.Clean(filepath.Join(filepath.Join(dirname, objsdir), basename))
-	return platform.objFilename(strings.TrimSuffix(path, filepath.Ext(basename)))
+	return platform.ObjFilename(strings.TrimSuffix(path, filepath.Ext(basename)))
 }
 
 func DependenciesFilename(ofile string, depsdir string) string {
@@ -148,11 +150,11 @@ func SourceFiles() ([]string, Language, error) {
 func FilenameForType(outputtype OutputType, name string) string {
 	switch outputtype {
 	case DllOutputType:
-		return platform.dllFilename(name)
+		return platform.DllFilename(name)
 	case ExeOutputType:
-		return platform.exeFilename(name)
+		return platform.ExeFilename(name)
 	case LibOutputType:
-		return platform.libFilename(name)
+		return platform.LibFilename(name)
 	default:
 		panic("unexpected outputtype: " + outputtype.String())
 	}
@@ -183,4 +185,36 @@ func (r CwdRestorer) Restore() {
 			r.err = AddDetail(r.err, "os.Chdir %q", r.path)
 		}
 	}
+}
+
+func installWithUsrBinInstall(filename, destdir string, filemode os.FileMode) error {
+	args := []string{"-c", "-m", fmt.Sprintf("%o", int(filemode)), filename, filepath.Join(destdir, filename)}
+	if *debug {
+		log.Printf("RUN: /usr/bin/install %v", args)
+	}
+	cmd := exec.Command("/usr/bin/install", args...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
+	return cmd.Run()
+}
+
+func installByCopyingFile(filename, destdir string, filemode os.FileMode) error {
+	dstFilename := filepath.Join(destdir, filename)
+	if *debug {
+		log.Printf("COPY: %q -> %q", filename, dstFilename)
+	}
+	src, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := os.OpenFile(dstFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filemode)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(dst, src)
+	if err != nil {
+		dst.Close()
+		os.Remove(dstFilename)
+	}
+	return dst.Close()
 }

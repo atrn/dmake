@@ -9,11 +9,7 @@
 package main
 
 import (
-	"fmt"
-	"io"
-	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -73,7 +69,7 @@ var (
 )
 
 func init() {
-	allPlatforms := []string{
+	platforms := []string{
 		"aix",
 		"darwin",
 		"dragonfly",
@@ -97,7 +93,7 @@ func init() {
 	}
 
 	var otherPlatformNames []string
-	for _, name := range allPlatforms {
+	for _, name := range platforms {
 		if name != runtime.GOOS {
 			otherPlatformNames = append(otherPlatformNames, name)
 		}
@@ -105,19 +101,19 @@ func init() {
 	otherPlatformNamesRegexp = regexp.MustCompile("_(" + strings.Join(otherPlatformNames, "|") + ")\\.")
 }
 
-func (p *PlatformSpecific) libFilename(path string) string {
+func (p *PlatformSpecific) LibFilename(path string) string {
 	return formFilename(p.libprefix, path, p.libsuffix)
 }
 
-func (p *PlatformSpecific) dllFilename(path string) string {
+func (p *PlatformSpecific) DllFilename(path string) string {
 	return formFilename(p.dllprefix, path, p.dllsuffix)
 }
 
-func (p *PlatformSpecific) exeFilename(path string) string {
+func (p *PlatformSpecific) ExeFilename(path string) string {
 	return formFilename("", path, p.exesuffix)
 }
 
-func (p *PlatformSpecific) objFilename(path string) string {
+func (p *PlatformSpecific) ObjFilename(path string) string {
 	return formFilename("", path, p.objsuffix)
 }
 
@@ -130,36 +126,4 @@ func formFilename(prefix, path, suffix string) string {
 		basename += suffix
 	}
 	return filepath.Clean(filepath.Join(dirname, basename))
-}
-
-func installWithUsrBinInstall(filename, destdir string, filemode os.FileMode) error {
-	args := []string{"-c", "-m", fmt.Sprintf("%o", int(filemode)), filename, filepath.Join(destdir, filename)}
-	if *debug {
-		log.Printf("RUN: /usr/bin/install %v", args)
-	}
-	cmd := exec.Command("/usr/bin/install", args...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
-	return cmd.Run()
-}
-
-func installByCopyingFile(filename, destdir string, filemode os.FileMode) error {
-	dstFilename := filepath.Join(destdir, filename)
-	if *debug {
-		log.Printf("COPY: %q -> %q", filename, dstFilename)
-	}
-	src, err := os.Open(filename)
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	dst, err := os.OpenFile(dstFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filemode)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(dst, src)
-	if err != nil {
-		dst.Close()
-		os.Remove(dstFilename)
-	}
-	return dst.Close()
 }
