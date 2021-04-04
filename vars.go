@@ -11,33 +11,114 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"strings"
+	"unicode"
 )
 
-type Vars map[string]string
+//  ----------------------------------------------------------------
 
-func (vars *Vars) Set(key, value string) {
-	(*vars)[key] = value
+type Var struct {
+	op    Op
+	value string
 }
 
-func (vars *Vars) Get(key string) (value string, found bool) {
-	value, found = (*vars)[key]
-	return
+func MakeVar(op Op, value string) Var {
+	return Var{
+		op:    op,
+		value: value,
+	}
 }
 
-func (vars *Vars) InterpolateVars(s string) string {
-	r := strings.Fields(s)
-	for index, word := range r {
-		if word[0] == '$' {
-			key := word[1:]
-			if value, found := vars.Get(key); found {
-				r[index] = value
+func (v *Var) PlusEq(rhs Var) Var {
+	return MakeVar(OpEq, v.value+rhs.value)
+}
+
+func (v *Var) MinusEq(rhs Var) Var {
+	return MakeVar(OpEq, strings.ReplaceAll(v.value, rhs.value, ""))
+}
+
+//  ----------------------------------------------------------------
+
+type Vars map[string]Var
+
+func (vars *Vars) Set(key string, v Var) {
+	(*vars)[key] = v
+}
+
+func (vars *Vars) SetValue(key, value string) {
+	(*vars)[key] = MakeVar(OpEq, value)
+}
+
+func (vars *Vars) Get(key string) (Var, bool) {
+	v, found := (*vars)[key]
+	return v, found
+}
+
+func (vars *Vars) GetValue(key string) (string, bool) {
+	if v, found := vars.Get(key); found {
+		return v.value, true
+	}
+	return "", false
+}
+
+func (vars *Vars) GetString(key string) string {
+	s, _ := vars.GetValue(key)
+	return s
+}
+
+func readAndAppend(r *strings.Reader, s string, stopFn func(rune) bool) (string, error) {
+	for {
+		if ch, _, err := r.ReadRune(); err != nil {
+			if err == io.EOF {
+				err = nil
 			}
+			return s, err
+		} else if stopFn(ch) {
+			return s, nil
+		} else {
+			s += string(ch)
 		}
 	}
-	return strings.Join(r, " ")
+}
+
+func (vars *Vars) Interpolate(s string) (string, error) {
+	var b strings.Builder
+	r := strings.NewReader(s)
+	for {
+		ch, _, err := r.ReadRune()
+		if err == io.EOF {
+			return b.String(), nil
+		} else if err != nil {
+			return b.String(), err
+		}
+		if ch != '$' {
+			b.WriteRune(ch)
+		} else {
+			ch, _, err := r.ReadRune()
+			if err == io.EOF {
+				b.WriteRune('$')
+				return b.String(), nil
+			} else if err != nil {
+				return b.String(), err
+			}
+
+			var key string
+			if ch == '$' {
+				b.WriteRune(ch)
+			} else if ch == '{' {
+				key, err = readAndAppend(r, "", func(ch rune) bool { return ch == '}' })
+			} else {
+				key, err = readAndAppend(r, string(ch), unicode.IsSpace)
+			}
+			if err != nil {
+				return b.String(), err
+			}
+			b.WriteString(vars.GetString(key))
+		}
+	}
 }
 
 // Read a .dmake and return a Vars containing the variables it
@@ -55,8 +136,8 @@ func (vars *Vars) ReadFromFile(path string) error {
 	}
 	defer file.Close()
 
-	vars.Set("OS", runtime.GOOS)
-	vars.Set("ARCH", runtime.GOARCH)
+	vars.SetValue("OS", runtime.GOOS)
+	vars.SetValue("ARCH", runtime.GOARCH)
 
 	lineno := 0
 
@@ -70,21 +151,52 @@ func (vars *Vars) ReadFromFile(path string) error {
 		if line == "" || line[0] == '#' {
 			continue
 		}
-		index := strings.Index(line, "=")
+		index := -1
+		var op string
+		for _, op = range operators {
+			index = strings.Index(line, op)
+			if index != -1 {
+				break
+			}
+		}
 		if index == -1 {
-			return fail("malformed line, no '='")
+			return fail(fmt.Sprintf("malformed line, no operator (%q)", operators))
 		}
 		if index == 0 {
-			return fail("malformed line, no variable name before '='")
+			return fail(fmt.Sprintf("malformed line, no variable name before %q", op))
 		}
 		key := strings.TrimSpace(line[0:index])
 		if len(strings.Fields(key)) != 1 {
 			return fail("malformed line, spaces in key")
 		}
 		val := strings.TrimSpace(line[index+1:])
-		val = vars.InterpolateVars(val)
-		vars.Set(key, val)
+		if val, err = vars.Interpolate(val); err != nil {
+			return err
+		}
+		vars.Apply(key, Var{OpFromString(op), val})
 	}
 
 	return nil
+}
+
+func (vars *Vars) Apply(key string, rhs Var) {
+	lhs, found := vars.Get(key)
+	switch rhs.op {
+	case OpEq:
+		vars.Set(key, rhs)
+	case OpPlusEq:
+		if found {
+			vars.Set(key, lhs.PlusEq(rhs))
+		} else {
+			vars.SetValue(key, rhs.value)
+		}
+	case OpMinusEq:
+		if found {
+			vars.Set(key, lhs.MinusEq(rhs))
+		} else {
+			vars.SetValue(key, rhs.value)
+		}
+	default:
+		panic(fmt.Errorf("unexpected operator - %q", rhs.op.String()))
+	}
 }

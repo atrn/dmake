@@ -495,7 +495,7 @@ func (dmake *Dmake) InitFromVars(vars Vars) error {
 	var found bool
 	var err error
 
-	patterns, found = vars["SRCS"]
+	patterns, found = vars.GetValue("SRCS")
 	if found {
 		dmake.sourceFiles, err = ExpandGlobs(patterns)
 		if err != nil {
@@ -506,14 +506,14 @@ func (dmake *Dmake) InitFromVars(vars Vars) error {
 		}
 	}
 
-	if path, found := vars["PREFIX"]; found {
+	if path, found := vars.GetValue("PREFIX"); found {
 		if dmake.installprefix == "" {
 			dmake.installprefix = path
 		}
 	}
 
 	var directories string
-	directories, found = vars["DIRS"]
+	directories, found = vars.GetValue("DIRS")
 	if found {
 		dmake.directories, err = ExpandGlobs(directories)
 		if err != nil {
@@ -525,7 +525,7 @@ func (dmake *Dmake) InitFromVars(vars Vars) error {
 	}
 
 	checkVar := func(name string, outputtype OutputType, fn func(string) string) error {
-		if name, exists := vars[name]; exists {
+		if name, exists := vars.GetValue(name); exists {
 			if dmake.outputtype != UnknownOutputType && dmake.outputtype != outputtype {
 				return fmt.Errorf("%s definition conflicts with %s", name, dmake.outputtype.String())
 			}

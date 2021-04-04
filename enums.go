@@ -121,3 +121,48 @@ func (f OutputType) DccArgument() string {
 		panic("unexpected OutputType")
 	}
 }
+
+//  ----------------------------------------------------------------
+
+type Op int
+
+const (
+	UnknownOp Op = iota
+	OpEq
+	OpPlusEq
+	OpMinusEq
+)
+
+var (
+	operators = []string{
+		"=",
+		"+=",
+		"-=",
+	}
+)
+
+func (op Op) String() string {
+	switch op {
+	case OpEq:
+		return "="
+	case OpPlusEq:
+		return "+="
+	case OpMinusEq:
+		return "-="
+	default:
+		panic("unexpected Op")
+	}
+}
+
+func OpFromString(s string) Op {
+	if s == "=" {
+		return OpEq
+	}
+	if s == "+=" {
+		return OpPlusEq
+	}
+	if s == "-=" {
+		return OpMinusEq
+	}
+	panic(fmt.Errorf("%q is not an operator", s))
+}
