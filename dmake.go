@@ -372,6 +372,8 @@ func (dmake *Dmake) InitAction(args []string, cwd string) error {
 			typeVarName = "EXE"
 		case DllOutputType:
 			typeVarName = "DLL"
+		case PluginOutputType:
+			typeVarName = "PLUGIN"
 		case LibOutputType:
 			typeVarName = "LIB"
 		}
@@ -457,6 +459,8 @@ func (dmake *Dmake) DetermineOutputType() OutputType {
 	if outputtype == UnknownOutputType {
 		if *dllflag {
 			outputtype = DllOutputType
+		} else if *pluginflag {
+			outputtype = PluginOutputType
 		} else {
 			outputtype = LibOutputType
 		}
@@ -535,6 +539,9 @@ func (dmake *Dmake) InitFromVars(vars Vars) error {
 		return nil
 	}
 	if err = checkVar("DLL", DllOutputType, platform.DllFilename); err != nil {
+		return err
+	}
+	if err = checkVar("PLUGIN", PluginOutputType, platform.PluginFilename); err != nil {
 		return err
 	}
 	if err = checkVar("EXE", ExeOutputType, platform.ExeFilename); err != nil {

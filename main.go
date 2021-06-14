@@ -19,11 +19,12 @@ import (
 var (
 	langflag Language = UnknownLanguage
 
-	chdir     = flag.String("C", "", "Change to `directory` before doing anything.")
-	dllflag   = flag.Bool("dll", false, "Implicitly create DLLs instead of static libraries.")
-	keepgoing = flag.Bool("k", false, "Keep going. Don't stop on first error.")
-	oflag     = flag.String("o", "", "Define output `filename`.")
-	prefix    = flag.String("prefix", Getenv("PREFIX", ""), "Installation `path` prefix.")
+	chdir      = flag.String("C", "", "Change to `directory` before doing anything.")
+	dllflag    = flag.Bool("dll", false, "Implicitly create DLLs instead of static libraries.")
+	pluginflag = flag.Bool("plugin", false, "Implicitly create plugins instead of static libraries.")
+	keepgoing  = flag.Bool("k", false, "Keep going. Don't stop on first error.")
+	oflag      = flag.String("o", "", "Define output `filename`.")
+	prefix     = flag.String("prefix", Getenv("PREFIX", ""), "Installation `path` prefix.")
 
 	debug     = flag.Bool("debug", false, "Enable dmake debug output.")
 	dccdebug  = flag.Bool("dcc-debug", false, "Enable dcc debug output")
@@ -108,6 +109,8 @@ loop:
 			action = Cleaning
 		case "dll":
 			dmake.SetOutputType(DllOutputType)
+		case "plugin":
+			dmake.SetOutputType(PluginOutputType)
 		case "exe":
 			dmake.SetOutputType(ExeOutputType)
 		case "lib":

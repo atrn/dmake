@@ -151,6 +151,8 @@ func FilenameForType(outputtype OutputType, name string) string {
 	switch outputtype {
 	case DllOutputType:
 		return platform.DllFilename(name)
+	case PluginOutputType:
+		return platform.PluginFilename(name)
 	case ExeOutputType:
 		return platform.ExeFilename(name)
 	case LibOutputType:

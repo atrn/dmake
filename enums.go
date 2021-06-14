@@ -90,6 +90,7 @@ type OutputType int
 const (
 	UnknownOutputType OutputType = iota
 	DllOutputType
+	PluginOutputType
 	ExeOutputType
 	LibOutputType
 )
@@ -100,6 +101,8 @@ func (f OutputType) String() string {
 		return "unknown"
 	case DllOutputType:
 		return "dll"
+	case PluginOutputType:
+		return "plugin"
 	case ExeOutputType:
 		return "exe"
 	case LibOutputType:
@@ -113,6 +116,8 @@ func (f OutputType) DccArgument() string {
 	switch f {
 	case DllOutputType:
 		return "--dll"
+	case PluginOutputType:
+		return "--plugin"
 	case ExeOutputType:
 		return "--exe"
 	case LibOutputType:

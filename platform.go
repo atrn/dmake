@@ -17,42 +17,50 @@ import (
 )
 
 type PlatformSpecific struct {
-	objsuffix   string
-	exesuffix   string
-	libprefix   string
-	libsuffix   string
-	dllprefix   string
-	dllsuffix   string
-	installfile func(filename, destdir string, filemode os.FileMode) error
+	objsuffix    string
+	exesuffix    string
+	libprefix    string
+	libsuffix    string
+	dllprefix    string
+	dllsuffix    string
+	pluginprefix string
+	pluginsuffix string
+	installfile  func(filename, destdir string, filemode os.FileMode) error
 }
 
 var (
 	windowsPlatform = PlatformSpecific{
-		objsuffix:   ".obj",
-		exesuffix:   ".exe",
-		libprefix:   "",
-		libsuffix:   ".lib",
-		dllprefix:   "",
-		dllsuffix:   ".dll",
-		installfile: installByCopyingFile,
+		objsuffix:    ".obj",
+		exesuffix:    ".exe",
+		libprefix:    "",
+		libsuffix:    ".lib",
+		dllprefix:    "",
+		dllsuffix:    ".dll",
+		pluginprefix: "",
+		pluginsuffix: ".dll",
+		installfile:  installByCopyingFile,
 	}
 	macosPlatform = PlatformSpecific{
-		objsuffix:   ".o",
-		exesuffix:   "",
-		libprefix:   "lib",
-		libsuffix:   ".a",
-		dllprefix:   "lib",
-		dllsuffix:   ".dylib",
-		installfile: installWithUsrBinInstall,
+		objsuffix:    ".o",
+		exesuffix:    "",
+		libprefix:    "lib",
+		libsuffix:    ".a",
+		dllprefix:    "lib",
+		dllsuffix:    ".dylib",
+		pluginprefix: "",
+		pluginsuffix: ".bundle",
+		installfile:  installWithUsrBinInstall,
 	}
 	elfPlatform = PlatformSpecific{
-		objsuffix:   ".o",
-		exesuffix:   "",
-		libprefix:   "lib",
-		libsuffix:   ".a",
-		dllprefix:   "lib",
-		dllsuffix:   ".so",
-		installfile: installWithUsrBinInstall,
+		objsuffix:    ".o",
+		exesuffix:    "",
+		libprefix:    "lib",
+		libsuffix:    ".a",
+		dllprefix:    "lib",
+		dllsuffix:    ".so",
+		pluginprefix: "lib",
+		pluginsuffix: ".so",
+		installfile:  installWithUsrBinInstall,
 	}
 )
 
@@ -107,6 +115,10 @@ func (p *PlatformSpecific) LibFilename(path string) string {
 
 func (p *PlatformSpecific) DllFilename(path string) string {
 	return formFilename(p.dllprefix, path, p.dllsuffix)
+}
+
+func (p *PlatformSpecific) PluginFilename(path string) string {
+	return formFilename(p.pluginprefix, path, p.pluginsuffix)
 }
 
 func (p *PlatformSpecific) ExeFilename(path string) string {
