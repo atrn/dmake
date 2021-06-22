@@ -149,7 +149,7 @@ loop:
 }
 
 func outputUsage() {
-	fmt.Fprintln(os.Stderr, "usage: dmake [options] [{exe|lib|dll} [install|clean]]")
+	fmt.Fprintln(os.Stderr, "usage: dmake [options] [{exe|lib|dll|plugin} [install|clean]]")
 	fmt.Fprintln(os.Stderr, "       dmake [options] path...")
 	fmt.Fprintln(os.Stderr, "       dmake [options] init [<init-options>...]")
 	fmt.Fprintln(os.Stderr, `
