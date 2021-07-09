@@ -35,12 +35,13 @@ const (
 )
 
 type Dmake struct {
-	sourceFiles   []string   // names of the source files to be compiled
-	outputtype    OutputType // type of thing being built
-	outputname    string     // output filename
-	defaultoutput string     // default output filename
-	installprefix string     // where to install
-	directories   []string   // names of any sub-directories to be compiled
+	sourceFiles         []string   // names of the source files to be compiled
+	outputtype          OutputType // type of thing being built
+	outputname          string     // output filename
+	outputnameDefaulted bool       // true if the user did NOT define outputname
+	defaultoutput       string     // default output filename
+	installprefix       string     // where to install
+	directories         []string   // names of any sub-directories to be compiled
 }
 
 //  Create a new Dmake
@@ -55,8 +56,10 @@ func NewDmake(dir string, outputName string, installPrefix string) *Dmake {
 	}
 	if outputName != "" {
 		dmake.outputname = outputName
+		dmake.outputnameDefaulted = false
 	} else {
 		dmake.outputname = dmake.defaultoutput
+		dmake.outputnameDefaulted = true
 	}
 	return dmake
 }
@@ -101,6 +104,9 @@ func (dmake *Dmake) Run(action Action, env []string) error {
 
 	if dmake.outputtype == UnknownOutputType {
 		dmake.outputtype = dmake.DetermineOutputType()
+		if dmake.outputnameDefaulted {
+			dmake.SetOutputNameFromType()
+		}
 	}
 
 	if action == Cleaning {
@@ -116,6 +122,21 @@ func (dmake *Dmake) Run(action Action, env []string) error {
 		err = dmake.InstallAction()
 	}
 	return err
+}
+
+func (dmake *Dmake) SetOutputNameFromType() {
+	switch dmake.outputtype {
+	case DllOutputType:
+		dmake.outputname = platform.DllFilename(dmake.outputname)
+	case PluginOutputType:
+		dmake.outputname = platform.PluginFilename(dmake.outputname)
+	case ExeOutputType:
+		dmake.outputname = platform.ExeFilename(dmake.outputname)
+	case LibOutputType:
+		dmake.outputname = platform.LibFilename(dmake.outputname)
+	default:
+		panic("outputtype not set when it should be known by now")
+	}
 }
 
 //  Perform some action across the defined sub-directories
