@@ -67,7 +67,7 @@ func NewDmake(dir string, outputName string, installPrefix string) *Dmake {
 // Do dmake some-action in cwd
 //
 func (dmake *Dmake) Run(action Action, env []string) error {
-	if *debug {
+	if *debugFlag {
 		log.Print("DEBUG: action=", action.String())
 	}
 
@@ -98,7 +98,7 @@ func (dmake *Dmake) Run(action Action, env []string) error {
 		}
 	}
 
-	if *debug {
+	if *debugFlag {
 		log.Printf("DEBUG: sourceFiles=%q", dmake.sourceFiles)
 	}
 
@@ -142,12 +142,12 @@ func (dmake *Dmake) SetOutputNameFromType() {
 //  Perform some action across the defined sub-directories
 //
 func (dmake *Dmake) Directories(action Action, env []string) (result error) {
-	if *debug {
+	if *debugFlag {
 		log.Printf("DEBUG: directories %q", dmake.directories)
 	}
 
 	for _, path := range dmake.directories {
-		if *verbose {
+		if *verboseFlag {
 			log.Printf("entering %q", path)
 		}
 
@@ -158,7 +158,7 @@ func (dmake *Dmake) Directories(action Action, env []string) (result error) {
 
 		err = NewDmake(path, "", dmake.installprefix).Run(action, env)
 		if err != nil {
-			if !*keepgoing {
+			if !*keepGoingFlag {
 				return err
 			}
 			if result == nil {
@@ -166,7 +166,7 @@ func (dmake *Dmake) Directories(action Action, env []string) (result error) {
 			}
 		}
 
-		if *verbose {
+		if *verboseFlag {
 			log.Printf(" leaving %q", path)
 		}
 
@@ -182,11 +182,14 @@ func (dmake *Dmake) BuildAction(env []string) error {
 	os.MkdirAll(objsdir, 0777)
 
 	dccArgs := make([]string, 0, 5+len(dmake.sourceFiles))
-	if *dccdebug {
+	if *dccdebugFlag {
 		dccArgs = append(dccArgs, "--debug")
 	}
-	if *quietflag {
+	if *quietFlag {
 		dccArgs = append(dccArgs, "--quiet")
+	}
+	if *writeCompileCommandsFlag {
+		dccArgs = append(dccArgs, "--write-compile-commands")
 	}
 	dccArgs = append(dccArgs, dmake.outputtype.DccArgument(), dmake.outputname)
 	dccArgs = append(dccArgs, "--objdir", objsdir)
@@ -195,7 +198,7 @@ func (dmake *Dmake) BuildAction(env []string) error {
 	cmd := exec.Command(dccCommandName, dccArgs...)
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
-	if *debug {
+	if *debugFlag {
 		log.Printf("RUN: %s %v", dccCommandName, dccArgs)
 	}
 	return cmd.Run()
@@ -478,15 +481,15 @@ func (dmake *Dmake) DetermineOutputType() OutputType {
 		}
 	}
 	if outputtype == UnknownOutputType {
-		if *dllflag {
+		if *dllFlag {
 			outputtype = DllOutputType
-		} else if *pluginflag {
+		} else if *pluginFlag {
 			outputtype = PluginOutputType
 		} else {
 			outputtype = LibOutputType
 		}
 	}
-	if *debug {
+	if *debugFlag {
 		log.Printf("DEBUG: module type %q", outputtype)
 	}
 	return outputtype

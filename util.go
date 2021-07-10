@@ -92,7 +92,7 @@ func Glob(pattern string) (filenames []string, matched bool, err error) {
 		filenames = make([]string, 0, len(matches))
 		for _, name := range matches {
 			if otherPlatformNamesRegexp.MatchString(name) {
-				if *debug {
+				if *debugFlag {
 					log.Printf("DEBUG: glob ignoring %q", name)
 				}
 				continue
@@ -191,7 +191,7 @@ func (r CwdRestorer) Restore() {
 
 func installWithUsrBinInstall(filename, destdir string, filemode os.FileMode) error {
 	args := []string{"-c", "-m", fmt.Sprintf("%o", int(filemode)), filename, filepath.Join(destdir, filename)}
-	if *debug {
+	if *debugFlag {
 		log.Printf("RUN: /usr/bin/install %v", args)
 	}
 	cmd := exec.Command("/usr/bin/install", args...)
@@ -201,7 +201,7 @@ func installWithUsrBinInstall(filename, destdir string, filemode os.FileMode) er
 
 func installByCopyingFile(filename, destdir string, filemode os.FileMode) error {
 	dstFilename := filepath.Join(destdir, filename)
-	if *debug {
+	if *debugFlag {
 		log.Printf("COPY: %q -> %q", filename, dstFilename)
 	}
 	src, err := os.Open(filename)

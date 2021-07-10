@@ -19,17 +19,17 @@ import (
 var (
 	langflag Language = UnknownLanguage
 
-	chdir      = flag.String("C", "", "Change to `directory` before doing anything.")
-	dllflag    = flag.Bool("dll", false, "Implicitly create DLLs instead of static libraries.")
-	pluginflag = flag.Bool("plugin", false, "Implicitly create plugins instead of static libraries.")
-	keepgoing  = flag.Bool("k", false, "Keep going. Don't stop on first error.")
-	oflag      = flag.String("o", "", "Define output `filename`.")
-	prefix     = flag.String("prefix", Getenv("PREFIX", ""), "Installation `path` prefix.")
-
-	debug     = flag.Bool("debug", false, "Enable dmake debug output.")
-	dccdebug  = flag.Bool("dcc-debug", false, "Enable dcc debug output")
-	verbose   = flag.Bool("v", false, "Issue messages.")
-	quietflag = flag.Bool("quiet", false, "Avoid output")
+	chdir                    = flag.String("C", "", "Change to `directory` before doing anything.")
+	dllFlag                  = flag.Bool("dll", false, "Implicitly create DLLs instead of static libraries.")
+	pluginFlag               = flag.Bool("plugin", false, "Implicitly create plugins instead of static libraries.")
+	keepGoingFlag            = flag.Bool("k", false, "Keep going. Don't stop on first error.")
+	oFlag                    = flag.String("o", "", "Define output `filename`.")
+	prefixFlag               = flag.String("prefix", Getenv("PREFIX", ""), "Installation `path` prefix.")
+	debugFlag                = flag.Bool("debug", false, "Enable dmake debug output.")
+	dccdebugFlag             = flag.Bool("dcc-debug", false, "Enable dcc debug output")
+	verboseFlag              = flag.Bool("v", false, "Issue messages.")
+	quietFlag                = flag.Bool("quiet", false, "Avoid output")
+	writeCompileCommandsFlag = flag.Bool("write-compile-commands", false, "Have dcc generate a compile_commands.json file.")
 
 	depsdir = Getenv("DCCDEPS", defaultDepsFileDir)
 	objsdir = Getenv("OBJDIR", defaultObjFileDir)
@@ -47,8 +47,8 @@ func main() {
 	flag.Usage = outputUsage
 	flag.Parse()
 
-	if *debug {
-		*verbose = true
+	if *debugFlag {
+		*verboseFlag = true
 	}
 
 	if *chdir != "" {
@@ -75,7 +75,7 @@ func main() {
 		}
 	}
 
-	dmake := NewDmake(cwd, *oflag, *prefix)
+	dmake := NewDmake(cwd, *oFlag, *prefixFlag)
 	initArgsIndex := -1
 
 loop:
@@ -120,7 +120,7 @@ loop:
 		}
 	}
 
-	if dmake.HaveDirs() && *oflag != "" {
+	if dmake.HaveDirs() && *oFlag != "" {
 		log.Fatal("-o flag not permitted when building directories")
 	}
 
