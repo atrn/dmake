@@ -28,6 +28,7 @@ var (
 	debugFlag                = flag.Bool("debug", false, "Enable dmake debug output.")
 	dccdebugFlag             = flag.Bool("dcc-debug", false, "Enable dcc debug output")
 	verboseFlag              = flag.Bool("v", false, "Issue messages.")
+	versionFlag              = flag.Bool("version", false, "Report version and exit.")
 	quietFlag                = flag.Bool("quiet", false, "Avoid output")
 	writeCompileCommandsFlag = flag.Bool("write-compile-commands", false, "Have dcc generate a compile_commands.json file.")
 
@@ -46,6 +47,11 @@ func main() {
 
 	flag.Usage = outputUsage
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Print(versionNumber)
+		os.Exit(0)
+	}
 
 	if *debugFlag {
 		*verboseFlag = true
