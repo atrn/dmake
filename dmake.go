@@ -35,13 +35,14 @@ const (
 )
 
 type Dmake struct {
-	sourceFiles         []string   // names of the source files to be compiled
-	outputtype          OutputType // type of thing being built
-	outputname          string     // output filename
-	outputnameDefaulted bool       // true if the user did NOT define outputname
-	defaultoutput       string     // default output filename
-	installprefix       string     // where to install
-	directories         []string   // names of any sub-directories to be compiled
+	sourceFiles          []string   // names of the source files to be compiled
+	outputtype           OutputType // type of thing being built
+	outputname           string     // output filename
+	outputnameDefaulted  bool       // true if the user did NOT define outputname
+	defaultoutput        string     // default output filename
+	installprefix        string     // where to install
+	directories          []string   // names of any sub-directories to be compiled
+	writeCompileCommands bool       // output a compile_commands.json
 }
 
 //  Create a new Dmake
@@ -188,7 +189,7 @@ func (dmake *Dmake) BuildAction(env []string) error {
 	if *quietFlag {
 		dccArgs = append(dccArgs, "--quiet")
 	}
-	if *writeCompileCommandsFlag {
+	if *writeCompileCommandsFlag || dmake.writeCompileCommands {
 		dccArgs = append(dccArgs, "--write-compile-commands")
 	}
 	dccArgs = append(dccArgs, dmake.outputtype.DccArgument(), dmake.outputname)
@@ -517,6 +518,7 @@ func (dmake *Dmake) ReadDmakefile() (err error) {
 //	EXE	output an executable with the defined name
 //	DIRS	sub-directories to be built
 //	PREFIX	installation prefix
+//	WRITE_COMPILE_COMMANDS have dcc output a compile_commands.json file
 //
 func (dmake *Dmake) InitFromVars(vars Vars) error {
 	var patterns string
@@ -551,6 +553,8 @@ func (dmake *Dmake) InitFromVars(vars Vars) error {
 			return fmt.Errorf("DIRS=%s matches no names", patterns)
 		}
 	}
+
+	_, dmake.writeCompileCommands = vars.Get("WRITE_COMPILE_COMMANDS")
 
 	checkVar := func(name string, outputtype OutputType, fn func(string) string) error {
 		if name, exists := vars.GetValue(name); exists {

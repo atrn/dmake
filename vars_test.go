@@ -1,6 +1,39 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestReadFromFile(t *testing.T) {
+	goodInput := `# A comment
+
+AVAR = AVAR-Value
+BOOLEAN
+
+# EOF
+`
+
+	vars := make(Vars)
+	r := strings.NewReader(goodInput)
+	err := vars.ReadFromReader(r, goodInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(key, expectedValue string) {
+		actualValue, found := vars.GetValue(key)
+		if !found {
+			t.Fatalf("variable %s not defined", key)
+		}
+		if actualValue != expectedValue {
+			t.Fatalf("variable %s has value %q, expected %q", key, actualValue, expectedValue)
+		}
+	}
+
+	check("AVAR", "AVAR-Value")
+	check("BOOLEAN", "true")
+}
 
 func TestInterpolate(t *testing.T) {
 	vars := make(Vars)

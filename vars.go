@@ -121,13 +121,21 @@ func (vars *Vars) Interpolate(s string) (string, error) {
 	}
 }
 
-// Read a .dmake and return a Vars containing the variables it
+// Read a .dmake file and return a Vars containing the variables it
 // defines.
 //
-// Variables are of the form <name> = <value>, names is a single,
-// space separated, token. Values may refer to previously defined
-// values via '$' prefixed names.  Blank lines and those beginning
-// with '#' are ignored.
+// Variables are of the form.
+//	<name> [= <value>]
+//
+// Names are a single, space separated, token.
+//
+// Values may refer to previously defined values via '$' prefixed
+// names.
+//
+// If no value is supplied the variable is assumed to be a "boolean"
+// style value and is assigned a default, string, value of "true".
+//
+// Blank lines and those beginning with '#' are ignored.
 //
 func (vars *Vars) ReadFromFile(path string) error {
 	file, err := os.Open(path)
@@ -135,6 +143,11 @@ func (vars *Vars) ReadFromFile(path string) error {
 		return err
 	}
 	defer file.Close()
+	return vars.ReadFromReader(file, path)
+}
+
+func (vars *Vars) ReadFromReader(file io.Reader, path string) error {
+	var err error
 
 	vars.SetValue("OS", runtime.GOOS)
 	vars.SetValue("ARCH", runtime.GOARCH)
@@ -151,27 +164,30 @@ func (vars *Vars) ReadFromFile(path string) error {
 		if line == "" || line[0] == '#' {
 			continue
 		}
-		index := -1
-		var op string
+		var key, op, val string
+		opIndex := -1
 		for _, op = range operators {
-			index = strings.Index(line, op)
-			if index != -1 {
+			opIndex = strings.Index(line, op)
+			if opIndex != -1 {
 				break
 			}
 		}
-		if index == -1 {
-			return fail(fmt.Sprintf("malformed line, no operator (%q)", operators))
-		}
-		if index == 0 {
+		switch opIndex {
+		case -1:
+			key = strings.TrimSpace(line)
+			op = "="
+			val = "true"
+		case 0:
 			return fail(fmt.Sprintf("malformed line, no variable name before %q", op))
-		}
-		key := strings.TrimSpace(line[0:index])
-		if len(strings.Fields(key)) != 1 {
-			return fail("malformed line, spaces in key")
-		}
-		val := strings.TrimSpace(line[index+1:])
-		if val, err = vars.Interpolate(val); err != nil {
-			return err
+		default:
+			key = strings.TrimSpace(line[0:opIndex])
+			if len(strings.Fields(key)) != 1 {
+				return fail("malformed line, variable names may not contain spaces")
+			}
+			val = strings.TrimSpace(line[opIndex+1:])
+			if val, err = vars.Interpolate(val); err != nil {
+				return err
+			}
 		}
 		vars.Apply(key, Var{OpFromString(op), val})
 	}
